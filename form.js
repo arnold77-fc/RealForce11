@@ -7907,13 +7907,13 @@
                     display: inline-flex !important;
                     align-items: center !important;
                     gap:6px !important;
-                    height: 15 !important;
+                    height: 14px !important;
                 }
                 /* Плашки 5.1, 2.0, 7.1, HD, 4K */
                 .quality-badge, 
                 .applecation__quality-badges div,
                 .applecation__meta-item {
-                    height: 15px !important; 
+                    height: 14px !important; 
                     display: inline-flex !important;
                     align-items: center !important;
                     justify-content: center !important;
@@ -7931,7 +7931,7 @@
                 .applecation__quality-badges svg,
                 .quality-badge img,
                 .applecation__quality-badges img {
-                    height: 15px !important; /* Делаем картинку внутри крупной */
+                    height: 14px !important; /* Делаем картинку внутри крупной */
                     width: auto !important;
                     display: block !important;
                     margin: 0 !important;

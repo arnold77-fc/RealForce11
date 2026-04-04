@@ -7931,7 +7931,7 @@
                 .applecation__quality-badges svg,
                 .quality-badge img,
                 .applecation__quality-badges img {
-                    height: 12px !important; /* Делаем картинку внутри крупной */
+                    height: 14px !important; /* Делаем картинку внутри крупной */
                     width: auto !important;
                     display: block !important;
                     margin: 0 !important;

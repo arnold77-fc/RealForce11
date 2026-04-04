@@ -7907,13 +7907,13 @@
                     display: inline-flex !important;
                     align-items: center !important;
                     gap:6px !important;
-                    height: 14px !important;
+                    height: 12px !important;
                 }
                 /* Плашки 5.1, 2.0, 7.1, HD, 4K */
                 .quality-badge, 
                 .applecation__quality-badges div,
                 .applecation__meta-item {
-                    height: 14px !important; 
+                    height: 12px !important; 
                     display: inline-flex !important;
                     align-items: center !important;
                     justify-content: center !important;
@@ -7921,8 +7921,8 @@
                     background: rgba(255, 255, 255, 0.2) !important;
                     border-radius: 4px !important;
                     border: none !important;
-                    font-size: 14px !important; /* Размер текста как у 7.1 */
-                    font-weight:500!important; /* Жирность */
+                    font-size: 12px !important; /* Размер текста как у 7.1 */
+                    font-weight:450!important; /* Жирность */
                     color: #fff !important;
                     line-height: 1 !important;
                 }
@@ -7931,7 +7931,7 @@
                 .applecation__quality-badges svg,
                 .quality-badge img,
                 .applecation__quality-badges img {
-                    height: 14px !important; /* Делаем картинку внутри крупной */
+                    height: 12px !important; /* Делаем картинку внутри крупной */
                     width: auto !important;
                     display: block !important;
                     margin: 0 !important;

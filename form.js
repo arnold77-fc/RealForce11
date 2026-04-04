@@ -7917,7 +7917,7 @@
                     display: inline-flex !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    padding: 0 6px !important;
+                    padding: 6px !important;
                     background: rgba(255, 255, 255, 0.2) !important;
                     border-radius: 4px !important;
                     border: none !important;
@@ -7931,7 +7931,7 @@
                 .applecation__quality-badges svg,
                 .quality-badge img,
                 .applecation__quality-badges img {
-                    height: 14px !important; /* Делаем картинку внутри крупной */
+                    height: 13px !important; /* Делаем картинку внутри крупной */
                     width: auto !important;
                     display: block !important;
                     margin: 0 !important;

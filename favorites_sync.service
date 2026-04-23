@@ -1,0 +1,15 @@
+[Unit]
+Description=Lampac Favorites Sync Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lampac/tools
+ExecStart=/usr/bin/python3 /home/lampac/tools/favorites_service.py
+Restart=always
+RestartSec=2
+Environment=FAVORITES_PORT=9136
+Environment=FAVORITES_DB_PATH=/home/lampac/data/favorites.db
+
+[Install]
+WantedBy=multi-user.target

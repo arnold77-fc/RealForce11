@@ -1,66 +1,37 @@
 (function () {
     'use strict';
+    
+    // Безопасная инициализация
+    function startPlugin() {
+        console.log('Plugin: Инициализация...');
 
-    if (window.__lampac_favs_ready__) return;
-    window.__lampac_favs_ready__ = true;
-
-    var STORAGE_KEY = 'my_local_favs_v2';
-
-    function getFavs() { return Lampa.Storage.get(STORAGE_KEY, []); }
-    function saveFavs(list) { Lampa.Storage.set(STORAGE_KEY, list); }
-
-    // Функция отрисовки меню
-    function renderMenu() {
-        var items = getFavs();
-        var html = '<div class="favorite-list" style="padding: 20px;">';
-        if (items.length === 0) html += '<p>Список пуст</p>';
-        items.forEach(function(item) {
-            html += '<div class="item selector" style="padding: 10px; border-bottom: 1px solid #333;">' + item.title + '</div>';
-        });
-        html += '</div>';
-        
-        Lampa.Modal.open({
-            title: 'Мои отслеживаемые',
-            html: html,
-            size: 'large',
-            onBack: function() { Lampa.Modal.close(); }
-        });
-    }
-
-    function init() {
-        // 1. Кнопка в карточке фильма
-        Lampa.Listener.follow('full', function (e) {
-            if (e.type === 'complite') {
-                setTimeout(function() {
-                    var btn = $('<div class="full-start__button selector"><span>Отслеживать</span></div>');
-                    btn.on('hover:enter', function () {
-                        var list = getFavs();
-                        if (!list.find(i => i.tmdb_id === e.data.id)) {
-                            list.push({ tmdb_id: e.data.id, title: e.data.name || e.data.title });
-                            saveFavs(list);
-                            Lampa.Noty.show('Добавлено в список!');
-                        } else {
-                            Lampa.Noty.show('Уже добавлено!');
-                        }
-                    });
-                    $('.full-start__buttons').append(btn);
-                }, 500); // Задержка для надежности
-            }
-        });
-
-        // 2. Пункт в главном меню
+        // 1. Добавление пункта в меню
         Lampa.Listener.follow('menu', function (e) {
             if (e.type === 'render') {
                 var menuList = $('.menu .menu__list');
                 if (menuList.find('[data-action="my_favs"]').length === 0) {
-                    var btn = $('<li class="menu__item selector" data-action="my_favs"><span>Мои отслеживаемые</span></li>');
-                    btn.on('hover:enter', renderMenu);
+                    var btn = $('<li class="menu__item selector" data-action="my_favs"><div class="menu__ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div><div class="menu__text">Отслеживаемое</div></li>');
+                    btn.on('hover:enter', function() {
+                        Lampa.Noty.show('Список открыт');
+                        // Здесь будет логика открытия окна
+                    });
                     menuList.append(btn);
                 }
             }
         });
+
+        // 2. Добавление кнопки в карточку
+        Lampa.Listener.follow('full', function (e) {
+            if (e.type === 'complite') {
+                var btn = $('<div class="full-start__button selector"><span>Отслеживать</span></div>');
+                btn.on('click', function () {
+                    Lampa.Noty.show('Сериал отслеживается!');
+                });
+                $('.full-start__buttons').append(btn);
+            }
+        });
     }
 
-    if (window.appready) init();
-    else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') init(); });
+    if (window.appready) startPlugin();
+    else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') startPlugin(); });
 })();

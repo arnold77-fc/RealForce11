@@ -365,7 +365,6 @@
                 if (data.dolbyVision) container.append(createBadge('dv', 'DV'));
             }
             
-            // Принудительный вывод Atmos
             if (data.atmos) {
                 container.append(createBadge('atmos', 'Atmos'));
             }

@@ -94,7 +94,6 @@
         }
 
         var _jacredCache = {};
-        var _uafixCache = {}; // Исправление: теперь переменная доступна всем функциям внутри initMarksJacRed
 
         function getBestJacred(card, callback) {
             var cacheKey = 'jacred_v3_' + card.id;
@@ -155,7 +154,6 @@
                         return;
                     }
 
-                    // Добавляем новые флаги в объект best
                     var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                     var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
@@ -173,11 +171,9 @@
                         }
                         if (t.indexOf('ukr') >= 0 || t.indexOf('укр') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
                         if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
-                        
-                        // Логика определения HDR, DV, Atmos
                         if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; } 
-                        else if (t.indexOf('hdr') >= 0) best.hdr = true;
-                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) best.atmos = true;
+                        else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
+                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
                     });
 
                     if (card.original_language === 'uk') best.ukr = true;
@@ -200,7 +196,6 @@
             return badge;
         }
 
-        // ... (все функции injectFullCardMarks, initFullCardMarks, processCards, observeCardRows остаются без изменений) ...
         function injectFullCardMarks(movie, renderEl) {
             if (!movie || !movie.id || !renderEl) return;
             var $render = $(renderEl);
@@ -255,7 +250,6 @@
             processCards();
         }
 
-        // Обновленная функция отрисовки в описании фильма
         function renderInfoRowBadges(container, data) {
             container.empty();
             if (data.ukr) {
@@ -282,6 +276,8 @@
                 container.append(atmosTag);
             }
         }
+
+        var _uafixCache = {};
 
         function checkUafixDirect(movie, callback) {
             var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
@@ -347,7 +343,6 @@
             });
         }
 
-        // Обновленная функция отрисовки на постере
         function renderBadges(container, data, movie) {
             container.empty();
             if (data.ukr && Lampa.Storage.get('likhtar_badge_ua', true)) container.append(createBadge('ua', 'UA'));
@@ -359,8 +354,12 @@
                 else if (data.resolution === 'HD' && Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', 'HD'));
                 else if (Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', data.resolution));
             }
-            if (data.hdr && Lampa.Storage.get('likhtar_badge_hdr', true)) container.append(createBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
-            if (data.atmos && Lampa.Storage.get('likhtar_badge_hdr', true)) container.append(createBadge('atmos', 'Atmos'));
+            
+            // Одновременный вывод HDR/DV и Atmos
+            if (Lampa.Storage.get('likhtar_badge_hdr', true)) {
+                if (data.hdr) container.append(createBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+                if (data.atmos) container.append(createBadge('atmos', 'Atmos'));
+            }
             
             if (movie) {
                 var rating = parseFloat(movie.imdb_rating || movie.kp_rating || movie.vote_average || 0);
@@ -410,7 +409,7 @@
             .card__mark--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); color: #fff; border-color: rgba(102,187,106,0.4); }
             .card__mark--en  { background: linear-gradient(135deg, #37474f, #78909c); color: #fff; border-color: rgba(120,144,156,0.4); }
             .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }
-            .card__mark--atmos { background: linear-gradient(135deg, #5c6bc0, #3f51b5); color: #fff; border-color: rgba(63,81,181,0.4); }
+            .card__mark--atmos { background: linear-gradient(135deg, #212121, #555555); color: #fff; border-color: rgba(0,0,0,0.4); }
             .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.3); font-size: 0.75em; white-space: nowrap; }
             .card__mark--rating .mark-star { margin-right: 0.15em; font-size: 0.9em; }
 

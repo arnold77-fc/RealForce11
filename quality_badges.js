@@ -94,6 +94,7 @@
         }
 
         var _jacredCache = {};
+        var _uafixCache = {};
 
         function getBestJacred(card, callback) {
             var cacheKey = 'jacred_v3_' + card.id;
@@ -171,6 +172,7 @@
                         }
                         if (t.indexOf('ukr') >= 0 || t.indexOf('укр') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
                         if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
+                        
                         if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; } 
                         else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
                         if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
@@ -252,48 +254,18 @@
 
         function renderInfoRowBadges(container, data) {
             container.empty();
-            if (data.ukr) {
-                var uaTag = $('<div class="full-start__pg"></div>');
-                uaTag.text('UA+');
-                container.append(uaTag);
-            }
+            if (data.ukr) container.append($('<div class="full-start__pg"></div>').text('UA+'));
             if (data.resolution && data.resolution !== 'SD') {
-                var resText = data.resolution;
-                if (resText === 'FHD') resText = '1080p';
-                else if (resText === 'HD') resText = '720p';
-                var qualityTag = $('<div class="full-start__pg"></div>');
-                qualityTag.text(resText);
-                container.append(qualityTag);
+                var resText = data.resolution === 'FHD' ? '1080p' : (data.resolution === 'HD' ? '720p' : data.resolution);
+                container.append($('<div class="full-start__pg"></div>').text(resText));
             }
-            if (data.hdr) {
-                var hdrTag = $('<div class="full-start__pg"></div>');
-                hdrTag.text(data.dolbyVision ? 'Dolby Vision' : 'HDR');
-                container.append(hdrTag);
-            }
-            if (data.atmos) {
-                var atmosTag = $('<div class="full-start__pg"></div>');
-                atmosTag.text('Atmos');
-                container.append(atmosTag);
-            }
-        }
-
-        var _uafixCache = {};
-
-        function checkUafixDirect(movie, callback) {
-            var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
-            if (!query) return callback(false);
-            var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
-            fetchWithProxy(searchUrl, function (err, html) {
-                if (err || !html) return callback(false);
-                var hasResults = html.indexOf('знайдено') >= 0 && html.indexOf('0 відповідей') < 0;
-                callback(hasResults);
-            });
+            if (data.hdr) container.append($('<div class="full-start__pg"></div>').text(data.dolbyVision ? 'Dolby Vision' : 'HDR'));
+            if (data.atmos) container.append($('<div class="full-start__pg"></div>').text('Atmos'));
         }
 
         function checkUafix(movie, callback) {
             if (!movie || !movie.id) return callback(false);
             var key = 'uafix_v2_' + movie.id;
-            
             if (_uafixCache[key] !== undefined) return callback(_uafixCache[key]);
             
             var storageVal = Lampa.Storage.get(key, '');
@@ -303,7 +275,9 @@
                 return callback(isFound);
             }
 
-            checkUafixDirect(movie, function (found) {
+            var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
+            fetchWithProxy('https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query), function (err, html) {
+                var found = !err && html.indexOf('знайдено') >= 0 && html.indexOf('0 відповідей') < 0;
                 _uafixCache[key] = found;
                 try { Lampa.Storage.set(key, found ? 'true' : 'false'); } catch (e) {}
                 callback(found);
@@ -312,32 +286,14 @@
 
         function addMarksToContainer(element, movie, viewSelector) {
             var containerParent = viewSelector ? element.find(viewSelector) : element;
-            if (!containerParent.length) containerParent = element;
-
             var marksContainer = containerParent.find('.card-marks');
             if (!marksContainer.length) {
                 marksContainer = $('<div class="card-marks"></div>');
                 containerParent.append(marksContainer);
             }
-
-            if (movie.has_ua !== undefined || movie.quality !== undefined) {
-                var staticData = {
-                    ukr: movie.has_ua === true,
-                    resolution: movie.quality || 'SD',
-                    hdr: movie.is_hdr === true,
-                    eng: false
-                };
-                renderBadges(marksContainer, staticData, movie);
-                return; 
-            }
-
             getBestJacred(movie, function (data) {
-                if (!data) data = { empty: true };
                 checkUafix(movie, function (hasUafix) {
-                    if (hasUafix && data) {
-                        data.ukr = true;
-                        data.empty = false;
-                    }
+                    if (hasUafix && data) { data.ukr = true; data.empty = false; }
                     if (data && !data.empty) renderBadges(marksContainer, data, movie);
                 });
             });
@@ -351,11 +307,10 @@
             if (data.resolution && data.resolution !== 'SD') {
                 if (data.resolution === '4K' && Lampa.Storage.get('likhtar_badge_4k', true)) container.append(createBadge('4k', '4K'));
                 else if (data.resolution === 'FHD' && Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('fhd', 'FHD'));
-                else if (data.resolution === 'HD' && Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', 'HD'));
                 else if (Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', data.resolution));
             }
             
-            // Одновременный вывод HDR/DV и Atmos
+            // Одновременный вывод всех меток
             if (Lampa.Storage.get('likhtar_badge_hdr', true)) {
                 if (data.hdr) container.append(createBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
                 if (data.atmos) container.append(createBadge('atmos', 'Atmos'));
@@ -364,9 +319,7 @@
             if (movie) {
                 var rating = parseFloat(movie.imdb_rating || movie.kp_rating || movie.vote_average || 0);
                 if (rating > 0) {
-                    var rBadge = document.createElement('div');
-                    rBadge.classList.add('card__mark', 'card__mark--rating');
-                    rBadge.innerHTML = '<span class="mark-star">★</span>' + rating.toFixed(1);
+                    var rBadge = createBadge('rating', '★' + rating.toFixed(1));
                     container.append(rBadge);
                 }
             }
@@ -374,54 +327,15 @@
 
         var style = document.createElement('style');
         style.innerHTML = `
-            .card .card__type { left: -0.2em !important; }
-
-            .card-marks {
-                position: absolute;
-                top: 2.7em;
-                left: -0.2em;
-                display: flex;
-                flex-direction: column;
-                gap: 0.15em;
-                z-index: 10;
-                pointer-events: none;
-            }
-            .card:not(.card--tv):not(.card--movie) .card-marks,
-            .card--movie .card-marks {
-                top: 1.4em;
-            }
-            .card__mark {
-                padding: 0.35em 0.45em;
-                font-size: 0.8em;
-                font-weight: 800;
-                line-height: 1;
-                letter-spacing: 0.03em;
-                border-radius: 0.3em;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                align-self: flex-start;
-                border: 1px solid rgba(255,255,255,0.15);
-            }
-            .card__mark--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); color: #fff; border-color: rgba(66,165,245,0.4); }
-            .card__mark--4k  { background: linear-gradient(135deg, #e65100, #ff9800); color: #fff; border-color: rgba(255,152,0,0.4); }
-            .card__mark--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); color: #fff; border-color: rgba(171,71,188,0.4); }
-            .card__mark--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); color: #fff; border-color: rgba(102,187,106,0.4); }
-            .card__mark--en  { background: linear-gradient(135deg, #37474f, #78909c); color: #fff; border-color: rgba(120,144,156,0.4); }
-            .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }
-            .card__mark--atmos { background: linear-gradient(135deg, #212121, #555555); color: #fff; border-color: rgba(0,0,0,0.4); }
-            .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.3); font-size: 0.75em; white-space: nowrap; }
-            .card__mark--rating .mark-star { margin-right: 0.15em; font-size: 0.9em; }
-
-            .card.jacred-mark-processed-v2 .card__vote { display: none !important; }
-            
-            .jacred-info-marks-v2 {
-                display: flex;
-                flex-direction: row;
-                gap: 0.5em;
-                margin-right: 1em;
-                align-items: center;
-            }
+            .card-marks { position: absolute; top: 2.7em; left: -0.2em; display: flex; flex-direction: column; gap: 0.15em; z-index: 10; pointer-events: none; }
+            .card__mark { padding: 0.25em 0.4em; font-size: 0.75em; font-weight: 800; border-radius: 0.3em; display: inline-flex; align-self: flex-start; border: 1px solid rgba(255,255,255,0.1); }
+            .card__mark--ua  { background: #1565c0; color: #fff; }
+            .card__mark--4k  { background: #e65100; color: #fff; }
+            .card__mark--fhd { background: #4a148c; color: #fff; }
+            .card__mark--hdr { background: #f57f17; color: #000; }
+            .card__mark--atmos { background: #212121; color: #fff; }
+            .card__mark--rating { background: rgba(0,0,0,0.6); color: #ffd700; }
+            .jacred-info-marks-v2 { display: flex; gap: 0.5em; }
         `;
         document.head.appendChild(style);
 
@@ -429,16 +343,6 @@
         observeCardRows();
     }
 
-    function init() {
-        setupMarksSettings();
-        initMarksJacRed();
-    }
-
-    if (window.appready) init();
-    else {
-        Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') init();
-        });
-    }
-
+    if (window.appready) { setupMarksSettings(); initMarksJacRed(); }
+    else { Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') { setupMarksSettings(); initMarksJacRed(); } }); }
 })();

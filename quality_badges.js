@@ -155,7 +155,7 @@
                         return;
                     }
 
-                    var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                    var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false, audio: '' };
                     var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
                     results.forEach(function (item) {
@@ -175,12 +175,13 @@
                         
                         if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; } 
                         else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
+                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
                         
-                        // Поиск Atmos: явно или через аудио-кодеки
-                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { 
-                            best.atmos = true; 
-                        } else if (t.indexOf('ddp') >= 0 || t.indexOf('eac3') >= 0 || t.indexOf('truehd') >= 0) {
-                            if (t.indexOf('7.1') >= 0 || t.indexOf('5.1') >= 0) best.atmos = true;
+                        // Поиск звука
+                        if (!best.audio) {
+                            if (t.indexOf('7.1') >= 0) best.audio = '7.1';
+                            else if (t.indexOf('5.1') >= 0) best.audio = '5.1';
+                            else if (t.indexOf('2.0') >= 0) best.audio = '2.0';
                         }
                     });
 
@@ -288,6 +289,12 @@
                 atmosTag.text('Atmos');
                 container.append(atmosTag);
             }
+            // Вывод звука
+            if (data.audio) {
+                var audioTag = $('<div class="full-start__pg"></div>');
+                audioTag.text(data.audio);
+                container.append(audioTag);
+            }
         }
 
         function checkUafixDirect(movie, callback) {
@@ -336,7 +343,8 @@
                     ukr: movie.has_ua === true,
                     resolution: movie.quality || 'SD',
                     hdr: movie.is_hdr === true,
-                    eng: false
+                    eng: false,
+                    audio: ''
                 };
                 renderBadges(marksContainer, staticData, movie);
                 return; 
@@ -366,16 +374,14 @@
                 else if (Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', data.resolution));
             }
             
-            // Группа HDR/DV (зависит от настроек)
             if (Lampa.Storage.get('likhtar_badge_hdr', true)) {
                 if (data.hdr) container.append(createBadge('hdr', 'HDR'));
                 if (data.dolbyVision) container.append(createBadge('dv', 'DV'));
+                if (data.atmos) container.append(createBadge('atmos', 'Atmos'));
             }
-            
-            // Принудительный вывод Atmos (не зависит от настроек)
-            if (data.atmos) {
-                container.append(createBadge('atmos', 'Atmos'));
-            }
+
+            // Добавлен вывод звука на постер
+            if (data.audio) container.append(createBadge('audio', data.audio));
             
             if (movie) {
                 var rating = parseFloat(movie.imdb_rating || movie.kp_rating || movie.vote_average || 0);
@@ -402,6 +408,7 @@
             .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }
             .card__mark--dv  { background: linear-gradient(135deg, #c62828, #ef5350); color: #fff; border-color: rgba(239,83,80,0.4); }
             .card__mark--atmos { background: linear-gradient(135deg, #212121, #424242); color: #fff; border-color: rgba(66,66,66,0.4); }
+            .card__mark--audio { background: linear-gradient(135deg, #455a64, #78909c); color: #fff; border-color: rgba(120,144,156,0.4); }
             .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.3); font-size: 0.75em; white-space: nowrap; }
             .card__mark--rating .mark-star { margin-right: 0.15em; font-size: 0.9em; }
             .card.jacred-mark-processed-v2 .card__vote { display: none !important; }

@@ -155,7 +155,7 @@
                         return;
                     }
 
-                    // Добавлено поле audio в объект best
+                    // Добавлено поле audio
                     var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false, audio: '' };
                     var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
@@ -178,12 +178,10 @@
                         else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
                         if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
                         
-                        // Парсинг аудиоканалов
-                        if (!best.audio) {
-                            if (t.indexOf('7.1') >= 0) best.audio = '7.1';
-                            else if (t.indexOf('5.1') >= 0) best.audio = '5.1';
-                            else if (t.indexOf('2.0') >= 0) best.audio = '2.0';
-                        }
+                        // Парсинг звука
+                        if (t.indexOf('7.1') >= 0) best.audio = '7.1';
+                        else if (t.indexOf('5.1') >= 0) best.audio = '5.1';
+                        else if (t.indexOf('2.0') >= 0) best.audio = '2.0';
                     });
 
                     if (card.original_language === 'uk') best.ukr = true;
@@ -381,7 +379,7 @@
                 if (data.atmos) container.append(createBadge('atmos', 'Atmos'));
             }
             
-            // Добавлена метка звука
+            // Вывод метки аудио
             if (data.audio) container.append(createBadge('audio', data.audio));
             
             if (movie) {
@@ -409,7 +407,7 @@
             .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }
             .card__mark--dv  { background: linear-gradient(135deg, #c62828, #ef5350); color: #fff; border-color: rgba(239,83,80,0.4); }
             .card__mark--atmos { background: linear-gradient(135deg, #212121, #424242); color: #fff; border-color: rgba(66,66,66,0.4); }
-            .card__mark--audio { background: linear-gradient(135deg, #4b4b4b, #616161); color: #fff; border-color: rgba(97,97,97,0.4); }
+            .card__mark--audio { background: linear-gradient(135deg, #607d8b, #78909c); color: #fff; border-color: rgba(120,144,156,0.4); }
             .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.3); font-size: 0.75em; white-space: nowrap; }
             .card__mark--rating .mark-star { margin-right: 0.15em; font-size: 0.9em; }
             .card.jacred-mark-processed-v2 .card__vote { display: none !important; }

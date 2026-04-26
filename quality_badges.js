@@ -94,7 +94,7 @@
         }
 
         var _jacredCache = {};
-        var _uafixCache = {}; // Исправление: объявление переменной здесь
+        var _uafixCache = {}; // Исправление: теперь переменная доступна всем функциям внутри initMarksJacRed
 
         function getBestJacred(card, callback) {
             var cacheKey = 'jacred_v3_' + card.id;
@@ -155,6 +155,7 @@
                         return;
                     }
 
+                    // Добавляем новые флаги в объект best
                     var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                     var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
@@ -173,10 +174,10 @@
                         if (t.indexOf('ukr') >= 0 || t.indexOf('укр') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
                         if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
                         
-                        // Добавлена логика HDR, DV и Atmos
+                        // Логика определения HDR, DV, Atmos
                         if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; } 
-                        else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
-                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
+                        else if (t.indexOf('hdr') >= 0) best.hdr = true;
+                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) best.atmos = true;
                     });
 
                     if (card.original_language === 'uk') best.ukr = true;
@@ -199,6 +200,7 @@
             return badge;
         }
 
+        // ... (все функции injectFullCardMarks, initFullCardMarks, processCards, observeCardRows остаются без изменений) ...
         function injectFullCardMarks(movie, renderEl) {
             if (!movie || !movie.id || !renderEl) return;
             var $render = $(renderEl);
@@ -253,6 +255,7 @@
             processCards();
         }
 
+        // Обновленная функция отрисовки в описании фильма
         function renderInfoRowBadges(container, data) {
             container.empty();
             if (data.ukr) {
@@ -268,16 +271,10 @@
                 qualityTag.text(resText);
                 container.append(qualityTag);
             }
-            // Независимый вывод HDR/DV/Atmos
             if (data.hdr) {
                 var hdrTag = $('<div class="full-start__pg"></div>');
-                hdrTag.text('HDR');
+                hdrTag.text(data.dolbyVision ? 'Dolby Vision' : 'HDR');
                 container.append(hdrTag);
-            }
-            if (data.dolbyVision) {
-                var dvTag = $('<div class="full-start__pg"></div>');
-                dvTag.text('DV');
-                container.append(dvTag);
             }
             if (data.atmos) {
                 var atmosTag = $('<div class="full-start__pg"></div>');
@@ -350,6 +347,7 @@
             });
         }
 
+        // Обновленная функция отрисовки на постере
         function renderBadges(container, data, movie) {
             container.empty();
             if (data.ukr && Lampa.Storage.get('likhtar_badge_ua', true)) container.append(createBadge('ua', 'UA'));
@@ -361,13 +359,8 @@
                 else if (data.resolution === 'HD' && Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', 'HD'));
                 else if (Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', data.resolution));
             }
-            
-            // Независимый рендер HDR/DV/Atmos
-            if (Lampa.Storage.get('likhtar_badge_hdr', true)) {
-                if (data.hdr) container.append(createBadge('hdr', 'HDR'));
-                if (data.dolbyVision) container.append(createBadge('dv', 'DV'));
-                if (data.atmos) container.append(createBadge('atmos', 'Atmos'));
-            }
+            if (data.hdr && Lampa.Storage.get('likhtar_badge_hdr', true)) container.append(createBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+            if (data.atmos && Lampa.Storage.get('likhtar_badge_hdr', true)) container.append(createBadge('atmos', 'Atmos'));
             
             if (movie) {
                 var rating = parseFloat(movie.imdb_rating || movie.kp_rating || movie.vote_average || 0);
@@ -383,21 +376,53 @@
         var style = document.createElement('style');
         style.innerHTML = `
             .card .card__type { left: -0.2em !important; }
-            .card-marks { position: absolute; top: 2.7em; left: -0.2em; display: flex; flex-direction: column; gap: 0.15em; z-index: 10; pointer-events: none; }
-            .card:not(.card--tv):not(.card--movie) .card-marks, .card--movie .card-marks { top: 1.4em; }
-            .card__mark { padding: 0.35em 0.45em; font-size: 0.8em; font-weight: 800; line-height: 1; letter-spacing: 0.03em; border-radius: 0.3em; display: inline-flex; align-items: center; justify-content: center; align-self: flex-start; border: 1px solid rgba(255,255,255,0.15); }
+
+            .card-marks {
+                position: absolute;
+                top: 2.7em;
+                left: -0.2em;
+                display: flex;
+                flex-direction: column;
+                gap: 0.15em;
+                z-index: 10;
+                pointer-events: none;
+            }
+            .card:not(.card--tv):not(.card--movie) .card-marks,
+            .card--movie .card-marks {
+                top: 1.4em;
+            }
+            .card__mark {
+                padding: 0.35em 0.45em;
+                font-size: 0.8em;
+                font-weight: 800;
+                line-height: 1;
+                letter-spacing: 0.03em;
+                border-radius: 0.3em;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                align-self: flex-start;
+                border: 1px solid rgba(255,255,255,0.15);
+            }
             .card__mark--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); color: #fff; border-color: rgba(66,165,245,0.4); }
             .card__mark--4k  { background: linear-gradient(135deg, #e65100, #ff9800); color: #fff; border-color: rgba(255,152,0,0.4); }
             .card__mark--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); color: #fff; border-color: rgba(171,71,188,0.4); }
             .card__mark--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); color: #fff; border-color: rgba(102,187,106,0.4); }
             .card__mark--en  { background: linear-gradient(135deg, #37474f, #78909c); color: #fff; border-color: rgba(120,144,156,0.4); }
             .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }
-            .card__mark--dv  { background: linear-gradient(135deg, #c62828, #ef5350); color: #fff; border-color: rgba(239,83,80,0.4); }
-            .card__mark--atmos { background: linear-gradient(135deg, #212121, #424242); color: #fff; border-color: rgba(66,66,66,0.4); }
+            .card__mark--atmos { background: linear-gradient(135deg, #5c6bc0, #3f51b5); color: #fff; border-color: rgba(63,81,181,0.4); }
             .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.3); font-size: 0.75em; white-space: nowrap; }
             .card__mark--rating .mark-star { margin-right: 0.15em; font-size: 0.9em; }
+
             .card.jacred-mark-processed-v2 .card__vote { display: none !important; }
-            .jacred-info-marks-v2 { display: flex; flex-direction: row; gap: 0.5em; margin-right: 1em; align-items: center; }
+            
+            .jacred-info-marks-v2 {
+                display: flex;
+                flex-direction: row;
+                gap: 0.5em;
+                margin-right: 1em;
+                align-items: center;
+            }
         `;
         document.head.appendChild(style);
 

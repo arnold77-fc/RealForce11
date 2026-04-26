@@ -120,6 +120,12 @@
                 return;
             }
 
+            var releaseDate = new Date(card.release_date || card.first_air_date);
+            if (releaseDate && releaseDate.getTime() > Date.now()) {
+                callback(null);
+                return;
+            }
+
             var apiUrl = 'https://jr.maxvol.pro/api/v1.0/torrents?search=' + encodeURIComponent(title) + '&year=' + year;
 
             fetchWithProxy(apiUrl, function (err, data) {
@@ -166,9 +172,9 @@
                         if (t.indexOf('ukr') >= 0 || t.indexOf('укр') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
                         if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
                         
-                        // Додано розпізнавання DV та Atmos
-                        if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; }
-                        else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
+                        // Додано логіку Dolby Vision та Atmos
+                        if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; } 
+                        else if (t.indexOf('hdr') >= 0) best.hdr = true;
                         if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) best.atmos = true;
                     });
 
@@ -261,10 +267,11 @@
                 qualityTag.text(resText);
                 container.append(qualityTag);
             }
-            // Додано відображення в повній картці
+            // Оновлено вивід міток HDR/DV/Atmos
             if (data.hdr) {
+                var hdrText = data.dolbyVision ? 'Dolby Vision' : 'HDR';
                 var hdrTag = $('<div class="full-start__pg"></div>');
-                hdrTag.text(data.dolbyVision ? 'DV' : 'HDR');
+                hdrTag.text(hdrText);
                 container.append(hdrTag);
             }
             if (data.atmos) {
@@ -351,10 +358,13 @@
                 else if (data.resolution === 'HD' && Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', 'HD'));
                 else if (Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', data.resolution));
             }
-            
-            // Відображення міток HDR, DV, Atmos
-            if (data.hdr && Lampa.Storage.get('likhtar_badge_hdr', true)) container.append(createBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
-            if (data.atmos && Lampa.Storage.get('likhtar_badge_hdr', true)) container.append(createBadge('atmos', 'Atmos'));
+            // Оновлено вивід HDR, Dolby Vision, Atmos
+            if (data.hdr && Lampa.Storage.get('likhtar_badge_hdr', true)) {
+                container.append(createBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+            }
+            if (data.atmos && Lampa.Storage.get('likhtar_badge_hdr', true)) {
+                container.append(createBadge('atmos', 'Atmos'));
+            }
             
             if (movie) {
                 var rating = parseFloat(movie.imdb_rating || movie.kp_rating || movie.vote_average || 0);
@@ -373,14 +383,14 @@
             .card-marks { position: absolute; top: 2.7em; left: -0.2em; display: flex; flex-direction: column; gap: 0.15em; z-index: 10; pointer-events: none; }
             .card:not(.card--tv):not(.card--movie) .card-marks, .card--movie .card-marks { top: 1.4em; }
             .card__mark { padding: 0.35em 0.45em; font-size: 0.8em; font-weight: 800; line-height: 1; letter-spacing: 0.03em; border-radius: 0.3em; display: inline-flex; align-items: center; justify-content: center; align-self: flex-start; border: 1px solid rgba(255,255,255,0.15); }
-            .card__mark--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); color: #fff; }
-            .card__mark--4k  { background: linear-gradient(135deg, #e65100, #ff9800); color: #fff; }
-            .card__mark--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); color: #fff; }
-            .card__mark--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); color: #fff; }
-            .card__mark--en  { background: linear-gradient(135deg, #37474f, #78909c); color: #fff; }
-            .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; }
-            .card__mark--atmos { background: linear-gradient(135deg, #2c3e50, #000); color: #fff; }
-            .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; font-size: 0.75em; white-space: nowrap; }
+            .card__mark--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); color: #fff; border-color: rgba(66,165,245,0.4); }
+            .card__mark--4k  { background: linear-gradient(135deg, #e65100, #ff9800); color: #fff; border-color: rgba(255,152,0,0.4); }
+            .card__mark--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); color: #fff; border-color: rgba(171,71,188,0.4); }
+            .card__mark--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); color: #fff; border-color: rgba(102,187,106,0.4); }
+            .card__mark--en  { background: linear-gradient(135deg, #37474f, #78909c); color: #fff; border-color: rgba(120,144,156,0.4); }
+            .card__mark--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }
+            .card__mark--atmos { background: linear-gradient(135deg, #2c3e50, #000); color: #fff; border-color: rgba(0,0,0,0.4); }
+            .card__mark--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.3); font-size: 0.75em; white-space: nowrap; }
             .card__mark--rating .mark-star { margin-right: 0.15em; font-size: 0.9em; }
             .card.jacred-mark-processed-v2 .card__vote { display: none !important; }
             .jacred-info-marks-v2 { display: flex; flex-direction: row; gap: 0.5em; margin-right: 1em; align-items: center; }

@@ -155,6 +155,7 @@
                         return;
                     }
 
+                    // Добавлено поле audio
                     var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false, audio: '' };
                     var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
@@ -178,11 +179,9 @@
                         if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
                         
                         // Поиск звука
-                        if (!best.audio) {
-                            if (t.indexOf('7.1') >= 0) best.audio = '7.1';
-                            else if (t.indexOf('5.1') >= 0) best.audio = '5.1';
-                            else if (t.indexOf('2.0') >= 0) best.audio = '2.0';
-                        }
+                        if (t.indexOf('7.1') >= 0) best.audio = '7.1';
+                        else if (t.indexOf('5.1') >= 0) best.audio = '5.1';
+                        else if (t.indexOf('2.0') >= 0) best.audio = '2.0';
                     });
 
                     if (card.original_language === 'uk') best.ukr = true;
@@ -289,7 +288,7 @@
                 atmosTag.text('Atmos');
                 container.append(atmosTag);
             }
-            // Вывод звука
+            // Вывод звука в карточке
             if (data.audio) {
                 var audioTag = $('<div class="full-start__pg"></div>');
                 audioTag.text(data.audio);
@@ -380,7 +379,7 @@
                 if (data.atmos) container.append(createBadge('atmos', 'Atmos'));
             }
 
-            // Добавлен вывод звука на постер
+            // Добавлен вывод метки звука
             if (data.audio) container.append(createBadge('audio', data.audio));
             
             if (movie) {

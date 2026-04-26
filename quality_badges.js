@@ -175,7 +175,13 @@
                         
                         if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) { best.hdr = true; best.dolbyVision = true; } 
                         else if (t.indexOf('hdr') >= 0) { best.hdr = true; }
-                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { best.atmos = true; }
+                        
+                        // Поиск Atmos: явно или через аудио-кодеки
+                        if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) { 
+                            best.atmos = true; 
+                        } else if (t.indexOf('ddp') >= 0 || t.indexOf('eac3') >= 0 || t.indexOf('truehd') >= 0) {
+                            if (t.indexOf('7.1') >= 0 || t.indexOf('5.1') >= 0) best.atmos = true;
+                        }
                     });
 
                     if (card.original_language === 'uk') best.ukr = true;
@@ -360,11 +366,13 @@
                 else if (Lampa.Storage.get('likhtar_badge_fhd', true)) container.append(createBadge('hd', data.resolution));
             }
             
+            // Группа HDR/DV (зависит от настроек)
             if (Lampa.Storage.get('likhtar_badge_hdr', true)) {
                 if (data.hdr) container.append(createBadge('hdr', 'HDR'));
                 if (data.dolbyVision) container.append(createBadge('dv', 'DV'));
             }
             
+            // Принудительный вывод Atmos (не зависит от настроек)
             if (data.atmos) {
                 container.append(createBadge('atmos', 'Atmos'));
             }

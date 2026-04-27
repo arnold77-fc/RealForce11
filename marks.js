@@ -73,8 +73,7 @@
     }
 
     function getBestJacred(movie, callback) {
-        // Изменил на v3, чтобы сбросить старый ошибочный кэш (где 1080p вместо 4K)
-        var cacheKey = 'marks_jacred_v3_' + movie.id;
+        var cacheKey = 'marks_jacred_v1_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
         try {
@@ -127,22 +126,16 @@
 
                     var isUkr = false;
                     var isEng = false;
-                    var isHdr = false;
-                    var isDv = false;
-                    var isAtmos = false;
+                    var isHdr = (t.indexOf('hdr') >= 0);
+                    var isDv = (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0);
+                    var isAtmos = (t.indexOf('atmos') >= 0);
 
                     if (t.indexOf('ukr') >= 0 || t.indexOf('СѓРєСЂ') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) isUkr = true;
                     if (movie.original_language === 'uk') isUkr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) isEng = true;
 
-                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) isDv = true;
-                    if (t.indexOf('hdr') >= 0 || isDv) isHdr = true;
-                    if (t.indexOf('atmos') >= 0) isAtmos = true;
-
-                    // Логика: если нашли качество лучше текущего - обновляем качество. Атрибуты (HDR, Atmos и т.д.) просто накапливаем.
-                    if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) {
-                        bestGlobal.resolution = currentRes;
-                    }
+                    // Накапливаем флаги качества
+                    if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) bestGlobal.resolution = currentRes;
                     if (isEng) bestGlobal.eng = true;
                     if (isHdr) bestGlobal.hdr = true;
                     if (isDv) bestGlobal.dolbyVision = true;
@@ -151,9 +144,7 @@
                     if (isUkr) {
                         bestGlobal.ukr = true;
                         bestUkr.ukr = true;
-                        if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestUkr.resolution)) {
-                            bestUkr.resolution = currentRes;
-                        }
+                        if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestUkr.resolution)) bestUkr.resolution = currentRes;
                         if (isEng) bestUkr.eng = true;
                         if (isHdr) bestUkr.hdr = true;
                         if (isDv) bestUkr.dolbyVision = true;
@@ -301,15 +292,15 @@
             }
         }
 
-        // Исправлено: теперь HDR и DV показываются одновременно, если они найдены
+        // Вывод HDR, DV и Atmos одновременно
         if (data.hdr && isSettingEnabled('marks_hdr', false)) {
             container.append(createCardBadge('hdr', 'HDR'));
         }
         if (data.dolbyVision && isSettingEnabled('marks_hdr', false)) {
-            container.append(createCardBadge('hdr', 'DV'));
+            container.append(createCardBadge('dv', 'DV'));
         }
         if (data.atmos && isSettingEnabled('marks_hdr', false)) {
-            container.append(createCardBadge('atmos', 'Atmos'));
+            container.append(createCardBadge('atmos', 'ATMOS'));
         }
 
         var hasCustomRating = false;
@@ -406,10 +397,10 @@
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
         }
         if (data.dolbyVision && isSettingEnabled('marks_hdr', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Dolby Vision</div>');
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--dv">Dolby Vision</div>');
         }
         if (data.atmos && isSettingEnabled('marks_hdr', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Atmos</div>');
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--atmos">Dolby Atmos</div>');
         }
 
         if (isSettingEnabled('marks_rating', false)) {
@@ -596,7 +587,7 @@
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 HDR / DV / Atmos' },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 HDR / DV / Dolby Atmos' },
             onChange: refreshBadgesNow
         });
 
@@ -651,7 +642,8 @@
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
-            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #4a148c, #d500f9); border-color: rgba(213,0,249,0.4); }\
+            .likhtar-marks-badge--dv  { background: linear-gradient(135deg, #6a1b9a, #ce93d8); border-color: rgba(206,147,216,0.4); }\
+            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #1a237e, #5c6bc0); border-color: rgba(92,107,192,0.4); }\
             .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
             .card.likhtar-marks-has-custom-rating .card__vote { display: none !important; }\
@@ -687,7 +679,9 @@
             }\
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
+            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-full-badge--dv  { background: linear-gradient(135deg, #6a1b9a, #ce93d8); border-color: rgba(206,147,216,0.4); }\
+            .likhtar-marks-full-badge--atmos { background: linear-gradient(135deg, #1a237e, #5c6bc0); border-color: rgba(92,107,192,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
         ';
 

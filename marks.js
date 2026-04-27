@@ -73,7 +73,7 @@
     }
 
     function getBestJacred(movie, callback) {
-        var cacheKey = 'marks_jacred_v1_' + movie.id;
+        var cacheKey = 'marks_jacred_v7_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
         try {
@@ -88,9 +88,6 @@
         var dateRaw = movie.release_date || movie.first_air_date || '';
         var year = String(dateRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
-
-        var releaseDate = new Date(dateRaw);
-        if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jr.maxvol.pro/api/v1.0/torrents?search=' + encodeURIComponent(title) + '&year=' + year;
         fetchWithProxy(apiUrl, function (err, body) {
@@ -111,8 +108,14 @@
                     return callback(emptyData);
                 }
 
-                var bestGlobal = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
-                var bestUkr = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                var best = { 
+                    resolution: 'SD', 
+                    ukr: false, 
+                    eng: false, 
+                    hdr: false, 
+                    dolbyVision: false, 
+                    atmos: false 
+                };
                 var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
                 results.forEach(function (item) {
@@ -124,43 +127,25 @@
                     else if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0 || t.indexOf('full hd') >= 0) currentRes = 'FHD';
                     else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) currentRes = 'HD';
 
-                    var isUkr = false;
-                    var isEng = false;
-                    var isHdr = (t.indexOf('hdr') >= 0);
-                    var isDv = (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0);
-                    var isAtmos = (t.indexOf('atmos') >= 0);
-
-                    if (t.indexOf('ukr') >= 0 || t.indexOf('СѓРєСЂ') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) isUkr = true;
-                    if (movie.original_language === 'uk') isUkr = true;
-                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) isEng = true;
-
-                    // Накапливаем флаги качества
-                    if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) bestGlobal.resolution = currentRes;
-                    if (isEng) bestGlobal.eng = true;
-                    if (isHdr) bestGlobal.hdr = true;
-                    if (isDv) bestGlobal.dolbyVision = true;
-                    if (isAtmos) bestGlobal.atmos = true;
-
-                    if (isUkr) {
-                        bestGlobal.ukr = true;
-                        bestUkr.ukr = true;
-                        if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestUkr.resolution)) bestUkr.resolution = currentRes;
-                        if (isEng) bestUkr.eng = true;
-                        if (isHdr) bestUkr.hdr = true;
-                        if (isDv) bestUkr.dolbyVision = true;
-                        if (isAtmos) bestUkr.atmos = true;
+                    // Всегда сохраняем лучшее разрешение из всех результатов
+                    if (resOrder.indexOf(currentRes) > resOrder.indexOf(best.resolution)) {
+                        best.resolution = currentRes;
                     }
+
+                    // Накапливаем флаги по всем торрентам
+                    if (t.indexOf('ukr') >= 0 || t.indexOf('СѓРєСЂ') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0 || movie.original_language === 'uk') best.ukr = true;
+                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0 || movie.original_language === 'en') best.eng = true;
+                    if (t.indexOf('hdr') >= 0) best.hdr = true;
+                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) best.dolbyVision = true;
+                    if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
-                var finalBest = bestGlobal.ukr ? bestUkr : bestGlobal;
-                if (movie.original_language === 'en') finalBest.eng = true;
+                best.empty = false;
+                best._ts = Date.now();
+                jacredCache[cacheKey] = best;
+                try { Lampa.Storage.set(cacheKey, best); } catch (e4) { }
 
-                finalBest.empty = false;
-                finalBest._ts = Date.now();
-                jacredCache[cacheKey] = finalBest;
-                try { Lampa.Storage.set(cacheKey, finalBest); } catch (e4) { }
-
-                callback(finalBest);
+                callback(best);
             } catch (e5) {
                 callback(emptyMarksData());
             }
@@ -292,7 +277,7 @@
             }
         }
 
-        // Вывод HDR, DV и Atmos одновременно
+        // Вывод HDR, Dolby Vision и Atmos по отдельности
         if (data.hdr && isSettingEnabled('marks_hdr', false)) {
             container.append(createCardBadge('hdr', 'HDR'));
         }
@@ -524,7 +509,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v3';
+        var migrateKey = 'marks_defaults_migrated_v4';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
@@ -587,7 +572,7 @@
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 HDR / DV / Dolby Atmos' },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 HDR / DV / Atmos' },
             onChange: refreshBadgesNow
         });
 

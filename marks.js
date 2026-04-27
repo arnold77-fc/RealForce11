@@ -103,26 +103,27 @@
                 
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 
-                var has4k = results.some(function(item) {
+                // --- ЖЕСТКАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ КАЧЕСТВА ---
+                var bestRes = 'SD';
+                var lock4k = false;
+
+                results.forEach(function (item) {
                     var t = String(item.title || '').toLowerCase();
-                    return (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) && 
-                           !(t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0);
+                    if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0) return;
+
+                    var is4k = (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0);
+                    var isFhd = (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0);
+                    var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
+
+                    if (is4k) {
+                        bestRes = '4K';
+                        lock4k = true;
+                    } else if (!lock4k) {
+                        if (isFhd) bestRes = 'FHD';
+                        else if (isHd && bestRes === 'SD') bestRes = 'HD';
+                    }
                 });
-
-                if (has4k) {
-                    best.resolution = '4K';
-                } else {
-                    results.forEach(function (item) {
-                        var t = String(item.title || '').toLowerCase();
-                        if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0) return;
-
-                        if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0) {
-                            if (best.resolution !== '4K' && best.resolution !== '2K') best.resolution = 'FHD';
-                        } else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) {
-                            if (best.resolution === 'SD') best.resolution = 'HD';
-                        }
-                    });
-                }
+                best.resolution = bestRes;
 
                 results.forEach(function (item) {
                     var t = String(item.title || '').toLowerCase();

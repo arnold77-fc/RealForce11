@@ -24,7 +24,8 @@
             ukr: false,
             eng: false,
             hdr: false,
-            dolbyVision: false
+            dolbyVision: false,
+            atmos: false
         };
     }
 
@@ -110,8 +111,8 @@
                     return callback(emptyData);
                 }
 
-                var bestGlobal = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false };
-                var bestUkr = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false };
+                var bestGlobal = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                var bestUkr = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
                 results.forEach(function (item) {
@@ -127,25 +128,31 @@
                     var isEng = false;
                     var isHdr = false;
                     var isDv = false;
+                    var isAtmos = false;
 
-                    if (t.indexOf('ukr') >= 0 || t.indexOf('СѓРєСЂ') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) isUkr = true;
+                    if (t.indexOf('ukr') >= 0 || t.indexOf('укр') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) isUkr = true;
                     if (movie.original_language === 'uk') isUkr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) isEng = true;
 
-                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) {
-                        isHdr = true;
-                        isDv = true;
-                    } else if (t.indexOf('hdr') >= 0) {
-                        isHdr = true;
-                    }
+                    if (t.indexOf('hdr') >= 0) isHdr = true;
+                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0 || t.indexOf(' dovi ') >= 0) isDv = true;
+                    if (t.indexOf('dolby atmos') >= 0 || t.indexOf('atmos') >= 0) isAtmos = true;
 
+                    // Оновлюємо глобальні найкращі показники
                     if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) {
                         bestGlobal.resolution = currentRes;
                         bestGlobal.hdr = isHdr;
                         bestGlobal.dolbyVision = isDv;
+                        bestGlobal.atmos = isAtmos;
+                    } else if (resOrder.indexOf(currentRes) === resOrder.indexOf(bestGlobal.resolution)) {
+                        // Якщо якість така ж, підсумовуємо фічі
+                        bestGlobal.hdr = bestGlobal.hdr || isHdr;
+                        bestGlobal.dolbyVision = bestGlobal.dolbyVision || isDv;
+                        bestGlobal.atmos = bestGlobal.atmos || isAtmos;
                     }
                     if (isEng) bestGlobal.eng = true;
 
+                    // Оновлюємо найкращі показники для української озвучки
                     if (isUkr) {
                         bestGlobal.ukr = true;
                         bestUkr.ukr = true;
@@ -154,6 +161,11 @@
                             bestUkr.resolution = currentRes;
                             bestUkr.hdr = isHdr;
                             bestUkr.dolbyVision = isDv;
+                            bestUkr.atmos = isAtmos;
+                        } else if (resOrder.indexOf(currentRes) === resOrder.indexOf(bestUkr.resolution)) {
+                            bestUkr.hdr = bestUkr.hdr || isHdr;
+                            bestUkr.dolbyVision = bestUkr.dolbyVision || isDv;
+                            bestUkr.atmos = bestUkr.atmos || isAtmos;
                         }
                         if (isEng) bestUkr.eng = true;
                     }
@@ -202,7 +214,7 @@
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
         fetchWithProxy(searchUrl, function (err, html) {
             if (err || !html) return callback(false);
-            var hasResults = html.indexOf('Р·РЅР°Р№РґРµРЅРѕ') >= 0 && html.indexOf('0 РІС–РґРїРѕРІС–РґРµР№') < 0;
+            var hasResults = html.indexOf('знайдено') >= 0 && html.indexOf('0 відповідей') < 0;
             callback(hasResults);
         });
     }
@@ -300,7 +312,13 @@
         }
 
         if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append(createCardBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+            container.append(createCardBadge('hdr', 'HDR'));
+        }
+        if (data.dolbyVision && isSettingEnabled('marks_hdr', false)) {
+            container.append(createCardBadge('dv', 'DV'));
+        }
+        if (data.atmos && isSettingEnabled('marks_atmos', false)) {
+            container.append(createCardBadge('atmos', 'ATMOS'));
         }
 
         var hasCustomRating = false;
@@ -394,7 +412,13 @@
         }
 
         if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">' + (data.dolbyVision ? 'Dolby Vision' : 'HDR') + '</div>');
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
+        }
+        if (data.dolbyVision && isSettingEnabled('marks_hdr', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--dv">Dolby Vision</div>');
+        }
+        if (data.atmos && isSettingEnabled('marks_atmos', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--atmos">Dolby Atmos</div>');
         }
 
         if (isSettingEnabled('marks_rating', false)) {
@@ -518,10 +542,8 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v3';
+        var migrateKey = 'marks_defaults_migrated_v4';
 
-        // One-time migration: keep module switch OFF by default,
-        // but enable all mark types so they appear immediately when turned ON.
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
                 Lampa.Storage.set('marks_enabled', false);
@@ -531,6 +553,7 @@
             Lampa.Storage.set('marks_4k', true);
             Lampa.Storage.set('marks_fhd', true);
             Lampa.Storage.set('marks_hdr', true);
+            Lampa.Storage.set('marks_atmos', true); // Додано в міграцію
             Lampa.Storage.set('marks_rating', true);
             Lampa.Storage.set(migrateKey, true);
         }
@@ -589,6 +612,13 @@
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
+            param: { name: 'marks_atmos', type: 'trigger', default: true },
+            field: { name: 'Показувати мітку Dolby Atmos' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
             param: { name: 'marks_rating', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 \u0440\u0435\u0439\u0442\u0438\u043d\u0433\u0443' },
             onChange: refreshBadgesNow
@@ -638,6 +668,8 @@
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-badge--dv  { background: linear-gradient(135deg, #311b92, #651fff); border-color: rgba(101,31,255,0.4); }\
+            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #006064, #00bcd4); border-color: rgba(0,188,212,0.4); }\
             .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
             .card.likhtar-marks-has-custom-rating .card__vote { display: none !important; }\
@@ -673,7 +705,9 @@
             }\
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
+            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-full-badge--dv { background: linear-gradient(135deg, #311b92, #651fff); border-color: rgba(101,31,255,0.4); }\
+            .likhtar-marks-full-badge--atmos { background: linear-gradient(135deg, #006064, #00bcd4); border-color: rgba(0,188,212,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
         ';
 
@@ -686,7 +720,6 @@
         window.MARKS_REFRESH = refreshAllMarks;
         initCardObserver();
         initFullCardObserver();
-        // Sync visual state on startup (important after hot-reload / cached DOM).
         setTimeout(refreshAllMarks, 50);
     }
 

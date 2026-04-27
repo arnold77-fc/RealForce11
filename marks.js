@@ -282,29 +282,29 @@
     function renderCardBadges(container, data, movie, cardRoot) {
         container.empty();
 
-        if (!isSettingEnabled('marks_enabled', true)) return;
+        if (!isSettingEnabled('marks_enabled', false)) return;
 
-        if (data.ukr && isSettingEnabled('marks_ua', true)) container.append(createCardBadge('ua', 'UA'));
-        if (data.eng && isSettingEnabled('marks_en', true)) container.append(createCardBadge('en', 'EN'));
+        if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
+        if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
 
         if (data.resolution && data.resolution !== 'SD') {
-            if (data.resolution === '4K' && isSettingEnabled('marks_4k', true)) {
+            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) {
                 container.append(createCardBadge('4k', '4K'));
-            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', true)) {
+            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', false)) {
                 container.append(createCardBadge('fhd', '1080p'));
-            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', true)) {
+            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', false)) {
                 container.append(createCardBadge('hd', '720p'));
-            } else if (isSettingEnabled('marks_fhd', true)) {
+            } else if (isSettingEnabled('marks_fhd', false)) {
                 container.append(createCardBadge('hd', data.resolution));
             }
         }
 
-        if (data.hdr && isSettingEnabled('marks_hdr', true)) {
+        if (data.hdr && isSettingEnabled('marks_hdr', false)) {
             container.append(createCardBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
         }
 
         var hasCustomRating = false;
-        if (isSettingEnabled('marks_rating', true)) {
+        if (isSettingEnabled('marks_rating', false)) {
             var rating = extractRating(movie);
             if (rating > 0 && String(rating) !== '0.0') {
                 var rBadge = document.createElement('div');
@@ -322,7 +322,7 @@
     }
 
     function addMarksToCard(card, movie, viewSelector) {
-        if (!isSettingEnabled('marks_enabled', true)) return;
+        if (!isSettingEnabled('marks_enabled', false)) return;
 
         var containerParent = viewSelector ? card.find(viewSelector).first() : card;
         if (!containerParent.length) containerParent = card;
@@ -370,12 +370,12 @@
 
     function renderFullBadges(container, data, movie) {
         container.empty();
-        if (!isSettingEnabled('marks_enabled', true)) {
+        if (!isSettingEnabled('marks_enabled', false)) {
             container.remove();
             return;
         }
 
-        if (data.ukr && isSettingEnabled('marks_ua', true)) {
+        if (data.ukr && isSettingEnabled('marks_ua', false)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA+</div>');
         }
 
@@ -385,19 +385,19 @@
             else if (resText === 'HD') resText = '720p';
 
             var showQuality = false;
-            if (data.resolution === '4K' && isSettingEnabled('marks_4k', true)) showQuality = true;
-            else if ((data.resolution === 'FHD' || data.resolution === 'HD') && isSettingEnabled('marks_fhd', true)) showQuality = true;
+            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) showQuality = true;
+            else if ((data.resolution === 'FHD' || data.resolution === 'HD') && isSettingEnabled('marks_fhd', false)) showQuality = true;
 
             if (showQuality) {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
             }
         }
 
-        if (data.hdr && isSettingEnabled('marks_hdr', true)) {
+        if (data.hdr && isSettingEnabled('marks_hdr', false)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">' + (data.dolbyVision ? 'Dolby Vision' : 'HDR') + '</div>');
         }
 
-        if (isSettingEnabled('marks_rating', true)) {
+        if (isSettingEnabled('marks_rating', false)) {
             var rating = extractRating(movie);
             if (rating > 0 && String(rating) !== '0.0') {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--rating">&#9733;' + rating.toFixed(1) + '</div>');
@@ -514,70 +514,81 @@
     }
 
     function setupSettings() {
-        if (!Lampa.SettingsApi || !Lampa.SettingsApi.addComponent) return;
+        if (!Lampa.SettingsApi || !Lampa.SettingsApi.addParam) return;
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
+        var targetComponent = 'interface';
+        var migrateKey = 'marks_defaults_migrated_v3';
+
+        // One-time migration: keep module switch OFF by default,
+        // but enable all mark types so they appear immediately when turned ON.
+        if (!Lampa.Storage.get(migrateKey, false)) {
+            if (Lampa.Storage.get('marks_enabled', null) === null) {
+                Lampa.Storage.set('marks_enabled', false);
+            }
+            Lampa.Storage.set('marks_ua', true);
+            Lampa.Storage.set('marks_en', true);
+            Lampa.Storage.set('marks_4k', true);
+            Lampa.Storage.set('marks_fhd', true);
+            Lampa.Storage.set('marks_hdr', true);
+            Lampa.Storage.set('marks_rating', true);
+            Lampa.Storage.set(migrateKey, true);
+        }
 
         var refreshBadgesNow = function () {
             if (window.MARKS_REFRESH) window.MARKS_REFRESH();
         };
 
-        Lampa.SettingsApi.addComponent({
-            component: 'marks_module',
-            name: '\u041c\u0456\u0442\u043a\u0438',
-            icon: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 5h14v14H5z" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 12h8M8 15h5" stroke="currentColor" stroke-width="2"/></svg>'
-        });
-
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { type: 'title' },
-            field: { name: '\u041b\u0438\u0448\u0435 \u043c\u0456\u0442\u043a\u0438 \u044f\u043a\u043e\u0441\u0442\u0456 / \u043e\u0437\u0432\u0443\u0447\u043a\u0438 / \u0440\u0435\u0439\u0442\u0438\u043d\u0433\u0443' }
+            field: { name: '\u041c\u0456\u0442\u043a\u0438 (Marks)' }
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
-            param: { name: 'marks_enabled', type: 'trigger', default: true },
+            component: targetComponent,
+            param: { name: 'marks_enabled', type: 'trigger', default: false },
             field: { name: '\u0423\u0432\u0456\u043c\u043a\u043d\u0443\u0442\u0438 \u043c\u043e\u0434\u0443\u043b\u044c \u043c\u0456\u0442\u043e\u043a' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { name: 'marks_ua', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 UA' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { name: 'marks_en', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 EN' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { name: 'marks_4k', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 4K' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { name: 'marks_fhd', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 1080p / 720p' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
-            component: 'marks_module',
+            component: targetComponent,
             param: { name: 'marks_rating', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 \u0440\u0435\u0439\u0442\u0438\u043d\u0433\u0443' },
             onChange: refreshBadgesNow
@@ -672,9 +683,11 @@
     function runInit() {
         setupSettings();
         injectStyle();
+        window.MARKS_REFRESH = refreshAllMarks;
         initCardObserver();
         initFullCardObserver();
-        window.MARKS_REFRESH = refreshAllMarks;
+        // Sync visual state on startup (important after hot-reload / cached DOM).
+        setTimeout(refreshAllMarks, 50);
     }
 
     if (window.appready) {

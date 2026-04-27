@@ -73,7 +73,8 @@
     }
 
     function getBestJacred(movie, callback) {
-        var cacheKey = 'marks_jacred_v1_' + movie.id;
+        // ЗМІНА ТУТ: v2 замість v1, щоб скинути старий кеш і знайти Atmos
+        var cacheKey = 'marks_jacred_v2_' + movie.id; 
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
         try {
@@ -138,21 +139,18 @@
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0 || t.indexOf(' dovi ') >= 0) isDv = true;
                     if (t.indexOf('dolby atmos') >= 0 || t.indexOf('atmos') >= 0) isAtmos = true;
 
-                    // Оновлюємо глобальні найкращі показники
                     if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) {
                         bestGlobal.resolution = currentRes;
                         bestGlobal.hdr = isHdr;
                         bestGlobal.dolbyVision = isDv;
                         bestGlobal.atmos = isAtmos;
                     } else if (resOrder.indexOf(currentRes) === resOrder.indexOf(bestGlobal.resolution)) {
-                        // Якщо якість така ж, підсумовуємо фічі
                         bestGlobal.hdr = bestGlobal.hdr || isHdr;
                         bestGlobal.dolbyVision = bestGlobal.dolbyVision || isDv;
                         bestGlobal.atmos = bestGlobal.atmos || isAtmos;
                     }
                     if (isEng) bestGlobal.eng = true;
 
-                    // Оновлюємо найкращі показники для української озвучки
                     if (isUkr) {
                         bestGlobal.ukr = true;
                         bestUkr.ukr = true;
@@ -542,7 +540,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4';
+        var migrateKey = 'marks_defaults_migrated_v5';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
@@ -553,7 +551,7 @@
             Lampa.Storage.set('marks_4k', true);
             Lampa.Storage.set('marks_fhd', true);
             Lampa.Storage.set('marks_hdr', true);
-            Lampa.Storage.set('marks_atmos', true); // Додано в міграцію
+            Lampa.Storage.set('marks_atmos', true);
             Lampa.Storage.set('marks_rating', true);
             Lampa.Storage.set(migrateKey, true);
         }

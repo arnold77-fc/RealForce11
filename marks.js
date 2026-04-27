@@ -92,49 +92,51 @@
         var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
-        var apiUrl = 'https://jr.maxvol.pro/api/v1.0/torrents?search=' + encodeURIComponent(title) + '&year=' + year;
+        var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
+        
         fetchWithProxy(apiUrl, function (err, body) {
             if (err || !body) return callback(emptyMarksData());
 
             try {
                 var parsed = JSON.parse(body);
-                if (parsed && parsed.contents) {
-                    try { parsed = JSON.parse(parsed.contents); } catch (e2) { }
-                }
-
-                var results = Array.isArray(parsed) ? parsed : (parsed && parsed.Results ? parsed.Results : []);
+                var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
                 
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
-                var resLevels = { 'SD': 0, 'HD': 1, 'FHD': 2, '2K': 3, '4K': 4 };
-                var currentBestLevel = 0;
+                
+                var has4k = results.some(function(item) {
+                    var t = String(item.title || '').toLowerCase();
+                    return (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) && 
+                           !(t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0);
+                });
+
+                if (has4k) {
+                    best.resolution = '4K';
+                } else {
+                    results.forEach(function (item) {
+                        var t = String(item.title || '').toLowerCase();
+                        if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0) return;
+
+                        if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0) {
+                            if (best.resolution !== '4K' && best.resolution !== '2K') best.resolution = 'FHD';
+                        } else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) {
+                            if (best.resolution === 'SD') best.resolution = 'HD';
+                        }
+                    });
+                }
 
                 results.forEach(function (item) {
-                    var t = String(item && item.title || '').toLowerCase();
-                    
-                    if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0 || t.indexOf('camrip') >= 0 || t.indexOf('cam-rip') >= 0) return;
-
-                    var res = 'SD';
-                    if (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) res = '4K';
-                    else if (t.indexOf('2k') >= 0 || t.indexOf('1440') >= 0) res = '2K';
-                    else if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0 || t.indexOf('full hd') >= 0) res = 'FHD';
-                    else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) res = 'HD';
-
-                    if (resLevels[res] > currentBestLevel) {
-                        currentBestLevel = resLevels[res];
-                        best.resolution = res;
-                    }
-
-                    if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
-                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
+                    var t = String(item.title || '').toLowerCase();
+                    if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
+                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
-                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) best.dolbyVision = true;
-                    if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) best.atmos = true;
+                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
+                    if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
                 best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
-                try { Lampa.Storage.set(cacheKey, best); } catch (e4) { }
+                Lampa.Storage.set(cacheKey, best);
 
                 callback(best);
             } catch (e5) {

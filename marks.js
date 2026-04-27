@@ -73,6 +73,7 @@
     }
 
     function getBestJacred(movie, callback) {
+        // Изменил на v3, чтобы сбросить старый ошибочный кэш (где 1080p вместо 4K)
         var cacheKey = 'marks_jacred_v3_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
@@ -134,33 +135,29 @@
                     if (movie.original_language === 'uk') isUkr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) isEng = true;
 
-                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0) {
-                        isHdr = true;
-                        isDv = true;
-                    } else if (t.indexOf('hdr') >= 0) {
-                        isHdr = true;
-                    }
+                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) isDv = true;
+                    if (t.indexOf('hdr') >= 0 || isDv) isHdr = true;
                     if (t.indexOf('atmos') >= 0) isAtmos = true;
 
+                    // Логика: если нашли качество лучше текущего - обновляем качество. Атрибуты (HDR, Atmos и т.д.) просто накапливаем.
                     if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) {
                         bestGlobal.resolution = currentRes;
-                        bestGlobal.hdr = isHdr;
-                        bestGlobal.dolbyVision = isDv;
-                        bestGlobal.atmos = isAtmos;
                     }
                     if (isEng) bestGlobal.eng = true;
+                    if (isHdr) bestGlobal.hdr = true;
+                    if (isDv) bestGlobal.dolbyVision = true;
+                    if (isAtmos) bestGlobal.atmos = true;
 
                     if (isUkr) {
                         bestGlobal.ukr = true;
                         bestUkr.ukr = true;
-
                         if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestUkr.resolution)) {
                             bestUkr.resolution = currentRes;
-                            bestUkr.hdr = isHdr;
-                            bestUkr.dolbyVision = isDv;
-                            bestUkr.atmos = isAtmos;
                         }
                         if (isEng) bestUkr.eng = true;
+                        if (isHdr) bestUkr.hdr = true;
+                        if (isDv) bestUkr.dolbyVision = true;
+                        if (isAtmos) bestUkr.atmos = true;
                     }
                 });
 
@@ -304,10 +301,13 @@
             }
         }
 
+        // Исправлено: теперь HDR и DV показываются одновременно, если они найдены
         if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append(createCardBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+            container.append(createCardBadge('hdr', 'HDR'));
         }
-        
+        if (data.dolbyVision && isSettingEnabled('marks_hdr', false)) {
+            container.append(createCardBadge('hdr', 'DV'));
+        }
         if (data.atmos && isSettingEnabled('marks_hdr', false)) {
             container.append(createCardBadge('atmos', 'Atmos'));
         }
@@ -403,9 +403,11 @@
         }
 
         if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">' + (data.dolbyVision ? 'Dolby Vision' : 'HDR') + '</div>');
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
         }
-        
+        if (data.dolbyVision && isSettingEnabled('marks_hdr', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Dolby Vision</div>');
+        }
         if (data.atmos && isSettingEnabled('marks_hdr', false)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Atmos</div>');
         }
@@ -594,7 +596,7 @@
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision / Atmos' },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 HDR / DV / Atmos' },
             onChange: refreshBadgesNow
         });
 

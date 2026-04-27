@@ -102,40 +102,33 @@
                 }
 
                 var results = Array.isArray(parsed) ? parsed : (parsed && parsed.Results ? parsed.Results : []);
-                if (!results.length) {
-                    var emptyData = emptyMarksData();
-                    emptyData._ts = Date.now();
-                    jacredCache[cacheKey] = emptyData;
-                    try { Lampa.Storage.set(cacheKey, emptyData); } catch (e3) { }
-                    return callback(emptyData);
-                }
-
-                // Исправленная логика: накопление параметров по всем результатам
+                
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false };
                 var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
                 results.forEach(function (item) {
                     var t = String(item && item.title || '').toLowerCase();
-                    var currentRes = 'SD';
+                    
+                    // ФИЛЬТР: Пропускаем экранки
+                    if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0 || t.indexOf('camrip') >= 0 || t.indexOf('cam-rip') >= 0) return;
 
+                    var currentRes = 'SD';
                     if (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) currentRes = '4K';
                     else if (t.indexOf('2k') >= 0 || t.indexOf('1440') >= 0) currentRes = '2K';
                     else if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0 || t.indexOf('full hd') >= 0) currentRes = 'FHD';
                     else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) currentRes = 'HD';
 
-                    // Всегда сохраняем максимальное найденное разрешение
                     if (resOrder.indexOf(currentRes) > resOrder.indexOf(best.resolution)) {
                         best.resolution = currentRes;
                     }
 
-                    // Накапливаем флаги
-                    if (t.indexOf('ukr') >= 0 || t.indexOf('СѓРєСЂ') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0 || movie.original_language === 'uk') best.ukr = true;
-                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0 || movie.original_language === 'en') best.eng = true;
+                    if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
+                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) best.dolbyVision = true;
                 });
 
-                best.empty = false;
+                best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
                 try { Lampa.Storage.set(cacheKey, best); } catch (e4) { }

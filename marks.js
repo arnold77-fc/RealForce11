@@ -24,7 +24,8 @@
             ukr: false,
             eng: false,
             hdr: false,
-            dolbyVision: false
+            dolbyVision: false,
+            atmos: false // Добавили поле
         };
     }
 
@@ -103,13 +104,12 @@
 
                 var results = Array.isArray(parsed) ? parsed : (parsed && parsed.Results ? parsed.Results : []);
                 
-                var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false };
+                var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
                 results.forEach(function (item) {
                     var t = String(item && item.title || '').toLowerCase();
                     
-                    // ФИЛЬТР: Пропускаем экранки
                     if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0 || t.indexOf('camrip') >= 0 || t.indexOf('cam-rip') >= 0) return;
 
                     var currentRes = 'SD';
@@ -126,6 +126,8 @@
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) best.dolbyVision = true;
+                    // Добавили поиск Atmos
+                    if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) best.atmos = true;
                 });
 
                 best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
@@ -265,8 +267,10 @@
             }
         }
 
-        if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append(createCardBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+        if (isSettingEnabled('marks_hdr', false)) {
+            if (data.hdr) container.append(createCardBadge('hdr', 'HDR'));
+            if (data.dolbyVision) container.append(createCardBadge('hdr', 'DV'));
+            if (data.atmos) container.append(createCardBadge('atmos', 'Atmos')); // Бадж Atmos
         }
 
         var hasCustomRating = false;
@@ -359,8 +363,10 @@
             }
         }
 
-        if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">' + (data.dolbyVision ? 'Dolby Vision' : 'HDR') + '</div>');
+        if (isSettingEnabled('marks_hdr', false)) {
+            if (data.hdr) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
+            if (data.dolbyVision) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">DV</div>');
+            if (data.atmos) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Atmos</div>');
         }
 
         if (isSettingEnabled('marks_rating', false)) {
@@ -547,7 +553,7 @@
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision' },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision / Atmos' },
             onChange: refreshBadgesNow
         });
 
@@ -602,6 +608,7 @@
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #424242, #757575); color: #fff; border-color: rgba(255,255,255,0.4); }\
             .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
             .card.likhtar-marks-has-custom-rating .card__vote { display: none !important; }\

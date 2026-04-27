@@ -25,7 +25,7 @@
             eng: false,
             hdr: false,
             dolbyVision: false,
-            atmos: false // Добавили поле
+            atmos: false
         };
     }
 
@@ -105,28 +105,29 @@
                 var results = Array.isArray(parsed) ? parsed : (parsed && parsed.Results ? parsed.Results : []);
                 
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
-                var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
+                var resLevels = { 'SD': 0, 'HD': 1, 'FHD': 2, '2K': 3, '4K': 4 };
+                var currentBestLevel = 0;
 
                 results.forEach(function (item) {
                     var t = String(item && item.title || '').toLowerCase();
                     
                     if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0 || t.indexOf('camrip') >= 0 || t.indexOf('cam-rip') >= 0) return;
 
-                    var currentRes = 'SD';
-                    if (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) currentRes = '4K';
-                    else if (t.indexOf('2k') >= 0 || t.indexOf('1440') >= 0) currentRes = '2K';
-                    else if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0 || t.indexOf('full hd') >= 0) currentRes = 'FHD';
-                    else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) currentRes = 'HD';
+                    var res = 'SD';
+                    if (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) res = '4K';
+                    else if (t.indexOf('2k') >= 0 || t.indexOf('1440') >= 0) res = '2K';
+                    else if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0 || t.indexOf('full hd') >= 0) res = 'FHD';
+                    else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) res = 'HD';
 
-                    if (resOrder.indexOf(currentRes) > resOrder.indexOf(best.resolution)) {
-                        best.resolution = currentRes;
+                    if (resLevels[res] > currentBestLevel) {
+                        currentBestLevel = resLevels[res];
+                        best.resolution = res;
                     }
 
                     if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) best.ukr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('multi') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dolbyvision') >= 0 || t.indexOf(' dv ') >= 0) best.dolbyVision = true;
-                    // Добавили поиск Atmos
                     if (t.indexOf('atmos') >= 0 || t.indexOf('dolby atmos') >= 0) best.atmos = true;
                 });
 
@@ -270,7 +271,7 @@
         if (isSettingEnabled('marks_hdr', false)) {
             if (data.hdr) container.append(createCardBadge('hdr', 'HDR'));
             if (data.dolbyVision) container.append(createCardBadge('hdr', 'DV'));
-            if (data.atmos) container.append(createCardBadge('atmos', 'Atmos')); // Бадж Atmos
+            if (data.atmos) container.append(createCardBadge('atmos', 'Atmos'));
         }
 
         var hasCustomRating = false;

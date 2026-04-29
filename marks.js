@@ -2,7 +2,6 @@
     'use strict';
 
     https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url='
-    // Например: 'https://my-proxy.name.workers.dev/?url='
     var STABLE_PROXY = ''; 
 
     if (window.marks_module_v1) return;

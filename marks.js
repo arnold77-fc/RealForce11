@@ -3,7 +3,7 @@
 
     /**
      * МОДУЛЬ МЕТОК (MARKS) ДЛЯ LAMPA
-     * Версия: 2.0.1 (Full & Fixed)
+     * Версия: 2.0.3 (Full & Extended)
      * * ПАРАМЕТРЫ КОНФИГУРАЦИИ:
      * Если у вас есть личный прокси-сервер, укажите его ниже.
      */
@@ -169,7 +169,7 @@
 
         // Подготовка поискового запроса
         var cleanTitle = (movie.original_title || movie.title || movie.name || '');
-        // ИСПРАВЛЕНО: Улучшенная очистка заголовка. Точки и тире теперь заменяются на пробелы.
+        // Исправленная очистка: убираем символы, мешающие Jacred
         cleanTitle = cleanTitle.replace(/[/\-—:·,.]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
         
         var dateValue = movie.release_date || movie.first_air_date || '';
@@ -216,9 +216,7 @@
     function parseAndCacheJacred(json, cacheKey, callback) {
         var torrents = Array.isArray(json) ? json : (json.torrents || []);
         var data = emptyMarksData();
-        
-        // Устанавливаем статус, если найдены торренты
-        if (torrents.length > 0) data.empty = false;
+        data.empty = false;
 
         var maxRank = 0; // 0:SD, 1:720p, 2:1080p, 3:2160p
 
@@ -254,7 +252,7 @@
             if (t.indexOf('hdr') > -1) {
                 data.hdr = true;
             }
-            if (t.indexOf('dv') > -1 || t.indexOf('dolby vision') > -1 || t.indexOf('dvision') > -1) {
+            if (t.indexOf('dv') > -1 || t.indexOf('dolby vision') > -1) {
                 data.dolbyVision = true;
             }
             if (t.indexOf('atmos') > -1) {
@@ -275,6 +273,7 @@
 
     /**
      * ПОИСК ПО ОНЛАЙН СЕРВИСАМ (Bandera / Online Aggregator)
+     * Дополняет данные о наличии озвучек в онлайн-кинотеатрах.
      */
     function getOnlineMetaData(movie, callback) {
         var searchTitle = (movie.title || movie.name || '').toLowerCase();
@@ -296,12 +295,15 @@
                 response.items.forEach(function(item) {
                     var lowTitle = item.title.toLowerCase();
                     
+                    // Поиск украинских меток
                     if (lowTitle.indexOf('ua') > -1 || item.source === 'uaflix' || lowTitle.indexOf('ukr') > -1) {
                         metadata.ukr = true;
                     }
+                    // Поиск русских меток
                     if (lowTitle.indexOf('ru') > -1 || item.source === 'rezka' || lowTitle.indexOf('rus') > -1) {
                         metadata.rus = true;
                     }
+                    // Поиск качества
                     if (item.quality) {
                         var q = item.quality.toUpperCase();
                         if (q.indexOf('4K') > -1 || q.indexOf('2160') > -1) {
@@ -320,6 +322,7 @@
 
     /**
      * ГЛАВНЫЙ МЕНЕДЖЕР ДАННЫХ
+     * Собирает информацию из Jacred и онлайн-баз, объединяя результаты.
      */
     function resolveAllMarks(movie, callback) {
         getBestJacred(movie, function (torrentData) {
@@ -346,11 +349,17 @@
         });
     }
 
+    /**
+     * Вспомогательный метод для получения объекта фильма из узла DOM.
+     */
     function getMovieObject(node) {
         var $node = $(node);
         return node.heroMovieData || $node.data('item') || node.card_data || node.item || null;
     }
 
+    /**
+     * Извлечение числового значения рейтинга.
+     */
     function getNumericRating(movie) {
         if (!movie) return 0;
         var r = movie.imdb_rating || movie.kp_rating || movie.vote_average || movie.rating || movie.rate || 0;
@@ -358,6 +367,9 @@
         return isNaN(parsed) ? 0 : parsed;
     }
 
+    /**
+     * СОЗДАНИЕ ВИЗУАЛЬНОЙ МЕТКИ (BADGE)
+     */
     function buildBadgeElement(className, text) {
         var el = document.createElement('div');
         el.className = 'likhtar-badge likhtar-badge--' + className;
@@ -375,7 +387,7 @@
             return;
         }
 
-        // 1. Озвучки
+        // 1. Секция озвучек
         if (data.ukr && isSettingEnabled('marks_ua', true)) {
             container.append(buildBadgeElement('ua', 'UA'));
         }
@@ -386,7 +398,7 @@
             container.append(buildBadgeElement('en', 'EN'));
         }
 
-        // 2. Качество
+        // 2. Секция качества видео
         if (data.resolution && data.resolution !== 'SD') {
             var res = data.resolution;
             if (res === '4K' && isSettingEnabled('marks_4k', true)) {
@@ -398,7 +410,7 @@
             }
         }
 
-        // 3. Технологии (ИСПРАВЛЕНО: HDR, DV и Atmos теперь выводятся одновременно)
+        // 3. Секция технологий (HDR/Vision/Atmos)
         if (isSettingEnabled('marks_hdr', true)) {
             if (data.hdr) {
                 container.append(buildBadgeElement('hdr', 'HDR'));
@@ -424,6 +436,9 @@
         }
     }
 
+    /**
+     * ИНИЦИАЛИЗАЦИЯ МЕТОК НА КОНКРЕТНОЙ КАРТОЧКЕ
+     */
     function applyMarksToCard(cardElement, movie) {
         var $card = $(cardElement);
         var targetArea = $card.find('.card__view').first();
@@ -446,6 +461,9 @@
         });
     }
 
+    /**
+     * ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ ВСЕХ КАРТОЧЕК
+     */
     function scanAndProcessCards(nodes) {
         var cards;
         
@@ -474,6 +492,9 @@
         });
     }
 
+    /**
+     * ОТРИСОВКА В ПОЛНОЙ КАРТОЧКЕ (DETAIL VIEW)
+     */
     function injectFullViewMarks(movie, htmlElement) {
         if (!movie || !movie.id || !htmlElement) return;
         
@@ -511,6 +532,9 @@
         }
     }
 
+    /**
+     * НАБЛЮДАТЕЛЬ ЗА ИЗМЕНЕНИЯМИ DOM
+     */
     function startDomObserver() {
         var timer = null;
         var pendingNodes = [];
@@ -540,6 +564,9 @@
         scanAndProcessCards();
     }
 
+    /**
+     * СЛУШАТЕЛЬ СОБЫТИЙ LAMPA
+     */
     function attachLampaListeners() {
         Lampa.Listener.follow('full', function (event) {
             if (event.type === 'complite') {
@@ -548,12 +575,18 @@
         });
     }
 
+    /**
+     * ОЧИСТКА И ПЕРЕЗАГРУЗКА
+     */
     function resetMarks() {
         $('.likhtar-marks-wrapper, .likhtar-full-container').remove();
         $('.card').removeClass('likhtar-processed likhtar-hide-native-rating');
         scanAndProcessCards();
     }
 
+    /**
+     * РЕГИСТРАЦИЯ В МЕНЮ НАСТРОЕК
+     */
     function registerModuleSettings() {
         if (window.marks_settings_init) return;
         window.marks_settings_init = true;
@@ -607,6 +640,9 @@
         });
     }
 
+    /**
+     * ИНЪЕКЦИЯ СТИЛЕЙ (CSS)
+     */
     function injectDetailedStyles() {
         if (document.getElementById('likhtar-marks-css')) return;
 
@@ -616,16 +652,14 @@
             /* Контейнер меток на карточке */
             .likhtar-marks-wrapper {
                 position: absolute;
-                top: 3.2em; /* ИСПРАВЛЕНО: Опущено вниз, чтобы не перекрывать значки Lampa */
+                top: 0.5em;
                 left: 0.5em;
                 display: flex;
-                flex-direction: row; /* ИСПРАВЛЕНО: Теперь в ряд, а не в колонку */
-                flex-wrap: wrap;    /* Перенос, если меток много */
+                flex-direction: column; /* ВОЗВРАЩЕНО: ВЕРТИКАЛЬНО */
                 align-items: flex-start;
                 gap: 0.25em;
                 z-index: 15;
                 pointer-events: none;
-                max-width: 90%;
             }
 
             .likhtar-badge {
@@ -672,11 +706,6 @@
                 text-align: center;
                 backdrop-filter: blur(4px);
             }
-            .likhtar-full-badge--ua { border-color: #00a2ff; color: #00a2ff; }
-            .likhtar-full-badge--ru { border-color: #777; color: #ccc; }
-            .likhtar-full-badge--hdr { border-color: #9b59b6; color: #d782ff; }
-            .likhtar-full-badge--dv { border-color: #d4af37; color: #d4af37; }
-            .likhtar-full-badge--atmos { border-color: #00d2ff; color: #00d2ff; }
 
             .card.likhtar-hide-native-rating .card__vote {
                 display: none !important;
@@ -685,8 +714,11 @@
         document.head.appendChild(styleSheet);
     }
 
+    /**
+     * ТОЧКА ВХОДА
+     */
     function initializePlugin() {
-        console.log('Marks: Initializing extended module...');
+        console.log('Marks: Initializing full module...');
         registerModuleSettings();
         injectDetailedStyles();
         startDomObserver();

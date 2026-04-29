@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    // === ВСТАВЬТЕ СЮДА ВАШУ ССЫЛКУ ИЗ CLOUDFLARE ===
+    https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url='
     // Например: 'https://my-proxy.name.workers.dev/?url='
     var STABLE_PROXY = ''; 
 

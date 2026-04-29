@@ -169,7 +169,7 @@
 
         // Подготовка поискового запроса
         var cleanTitle = (movie.original_title || movie.title || movie.name || '');
-        // Исправлено: добавлена очистка точек и тире для корректного поиска в Jacred
+        // ИСПРАВЛЕНО: замена знаков препинания на пробел для корректного поиска (вместо удаления вплотную)
         cleanTitle = cleanTitle.replace(/[/\-—:·,.]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
         
         var dateValue = movie.release_date || movie.first_air_date || '';
@@ -291,7 +291,7 @@
                 quality: 'SD' 
             };
 
-            if (response && response.items) {
+            if (response && response.ok && response.items) {
                 response.items.forEach(function(item) {
                     var lowTitle = item.title.toLowerCase();
                     
@@ -421,7 +421,7 @@
                 container.append(buildBadgeElement('hdr', 'HDR'));
             }
             if (data.dolbyVision) {
-                // Исправлено: добавлен корректный класс для DV
+                // ИСПРАВЛЕНО: замена класса hdr на dv
                 container.append(buildBadgeElement('dv', 'DV'));
             }
             if (data.atmos) {
@@ -694,6 +694,7 @@
                 border-color: rgba(0,162,255,0.3);
             }
             .likhtar-badge--ru {
+                background: #333333;
                 background: linear-gradient(135deg, #222, #444);
             }
             .likhtar-badge--en {
@@ -701,6 +702,7 @@
             }
             .likhtar-badge--4k {
                 background: linear-gradient(135deg, #d35400, #f39c12);
+                color: #fff;
             }
             .likhtar-badge--fhd {
                 background: linear-gradient(135deg, #6a11cb, #2575fc);

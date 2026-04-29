@@ -30,10 +30,10 @@
     }
 
     function fetchWithProxy(url, callback) {
+        // ИЗМЕНЕНИЕ 1: Использование более быстрых прокси и снижение таймаута
         var proxies = [
-            'https://api.allorigins.win/get?url=',
-            'https://cors-anywhere.herokuapp.com/',
-            'https://thingproxy.freeboard.io/fetch/'
+            'https://corsproxy.io/?',
+            'https://api.allorigins.win/raw?url='
         ];
 
         function request(reqUrl, setHeaders, onFail) {
@@ -45,7 +45,7 @@
                 else onFail();
             };
             xhr.onerror = onFail;
-            xhr.timeout = 10000;
+            xhr.timeout = 3500; // Снижено с 10 секунд до 3.5 сек для скорости
             xhr.ontimeout = onFail;
             xhr.send();
         }
@@ -54,45 +54,50 @@
             if (index >= proxies.length) return callback(new Error('All proxies failed'), null);
 
             var proxy = proxies[index];
-            var reqUrl = proxy === 'https://api.allorigins.win/get?url='
-                ? proxy + encodeURIComponent(url)
-                : proxy + url;
+            var reqUrl = proxy + encodeURIComponent(url);
 
-            request(reqUrl, function (xhr) {
-                if (proxy === 'https://cors-anywhere.herokuapp.com/') {
-                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-                }
-            }, function () {
+            request(reqUrl, null, function () {
                 tryProxy(index + 1);
             });
         }
 
-        request(url, null, function () {
+        // Пытаемся сначала использовать встроенный запрос Lampa (быстрее всего)
+        var network = new Lampa.Reguest();
+        network.timeout(3000);
+        network.silent(url, function (res) {
+            var result = typeof res === 'object' ? JSON.stringify(res) : res;
+            callback(null, result);
+        }, function () {
+            // Если прямой запрос не удался, идем через прокси
             tryProxy(0);
         });
     }
 
     function getBestJacred(movie, callback) {
-        var cacheKey = 'marks_jacred_v1_' + movie.id;
+        var cacheKey = 'marks_jacred_v2_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
         try {
             var raw = Lampa.Storage.get(cacheKey, '');
-            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 48 * 60 * 60 * 1000)) {
+            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 24 * 60 * 60 * 1000)) { // Кэш 24ч вместо 48ч
                 jacredCache[cacheKey] = raw;
                 return callback(raw);
             }
         } catch (e) { }
 
-        var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
+        // ИЗМЕНЕНИЕ 2: Сначала ищем по локальному названию, оно дает больше результатов на трекерах
+        var title = (movie.title || movie.name || movie.original_title || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
         var year = String(dateRaw).substr(0, 4);
-        if (!title || !year) return callback(emptyMarksData());
+        
+        if (!title) return callback(emptyMarksData());
 
         var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
-        var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
+        // ИЗМЕНЕНИЕ 3: Год теперь не является строго обязательным параметром
+        var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title);
+        if (year) apiUrl += '&year=' + year;
         
         fetchWithProxy(apiUrl, function (err, body) {
             if (err || !body) return callback(emptyMarksData());
@@ -102,8 +107,6 @@
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
                 
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
-                
-                // --- ЖЕСТКАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ КАЧЕСТВА ---
                 var bestRes = 'SD';
                 var lock4k = false;
 
@@ -136,8 +139,12 @@
 
                 best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
                 best._ts = Date.now();
-                jacredCache[cacheKey] = best;
-                Lampa.Storage.set(cacheKey, best);
+                
+                // Кэшируем только если что-то нашли, чтобы при временном сбое пустой результат не висел сутки
+                if (!best.empty) {
+                    jacredCache[cacheKey] = best;
+                    Lampa.Storage.set(cacheKey, best);
+                }
 
                 callback(best);
             } catch (e5) {
@@ -159,7 +166,7 @@
         url += '&type=' + type;
 
         var network = new Lampa.Reguest();
-        network.timeout(5000);
+        network.timeout(3000); // Снижено с 5000 до 3000
         network.silent(url, function (json) {
             callback(Boolean(json && json.ok && json.items && json.items.length > 0));
         }, function () {
@@ -168,7 +175,7 @@
     }
 
     function checkUafixDirect(movie, callback) {
-        var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
+        var query = movie.title || movie.name || movie.original_title || movie.original_name || '';
         if (!query) return callback(false);
 
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
@@ -182,7 +189,7 @@
     function checkUafix(movie, callback) {
         if (!movie || !movie.id) return callback(false);
 
-        var key = 'marks_uafix_v1_' + movie.id;
+        var key = 'marks_uafix_v2_' + movie.id;
         if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
 
         checkUafixBandera(movie, function (result) {

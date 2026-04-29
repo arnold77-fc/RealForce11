@@ -30,63 +30,52 @@
     }
 
     function fetchWithProxy(url, callback) {
-        // ИЗМЕНЕНИЕ 1: Использование более быстрых прокси и снижение таймаута
+        // Оставил только самые надежные прокси без оборачивания в кривые объекты
         var proxies = [
-            'https://corsproxy.io/?',
-            'https://api.allorigins.win/raw?url='
+            'https://corsproxy.io/?' + encodeURIComponent(url),
+            'https://api.allorigins.win/raw?url=' + encodeURIComponent(url)
         ];
 
-        function request(reqUrl, setHeaders, onFail) {
+        function request(reqUrl, onFail) {
             var xhr = new XMLHttpRequest();
             xhr.open('GET', reqUrl, true);
-            if (typeof setHeaders === 'function') setHeaders(xhr);
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) callback(null, xhr.responseText);
-                else onFail();
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    callback(null, xhr.responseText);
+                } else {
+                    onFail();
+                }
             };
             xhr.onerror = onFail;
-            xhr.timeout = 3500; // Снижено с 10 секунд до 3.5 сек для скорости
+            xhr.timeout = 5000; // Вернул таймаут на 5 секунд для стабильности
             xhr.ontimeout = onFail;
             xhr.send();
         }
 
         function tryProxy(index) {
             if (index >= proxies.length) return callback(new Error('All proxies failed'), null);
-
-            var proxy = proxies[index];
-            var reqUrl = proxy + encodeURIComponent(url);
-
-            request(reqUrl, null, function () {
+            request(proxies[index], function () {
                 tryProxy(index + 1);
             });
         }
 
-        // Пытаемся сначала использовать встроенный запрос Lampa (быстрее всего)
-        var network = new Lampa.Reguest();
-        network.timeout(3000);
-        network.silent(url, function (res) {
-            var result = typeof res === 'object' ? JSON.stringify(res) : res;
-            callback(null, result);
-        }, function () {
-            // Если прямой запрос не удался, идем через прокси
-            tryProxy(0);
-        });
+        tryProxy(0);
     }
 
     function getBestJacred(movie, callback) {
-        var cacheKey = 'marks_jacred_v2_' + movie.id;
+        var cacheKey = 'marks_jacred_v3_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
         try {
             var raw = Lampa.Storage.get(cacheKey, '');
-            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 24 * 60 * 60 * 1000)) { // Кэш 24ч вместо 48ч
+            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 24 * 60 * 60 * 1000)) {
                 jacredCache[cacheKey] = raw;
                 return callback(raw);
             }
         } catch (e) { }
 
-        // ИЗМЕНЕНИЕ 2: Сначала ищем по локальному названию, оно дает больше результатов на трекерах
-        var title = (movie.title || movie.name || movie.original_title || '').toLowerCase().trim();
+        // Вернул поиск по оригинальному названию — Jacred ищет так намного лучше
+        var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
         var year = String(dateRaw).substr(0, 4);
         
@@ -95,12 +84,14 @@
         var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
-        // ИЗМЕНЕНИЕ 3: Год теперь не является строго обязательным параметром
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title);
-        if (year) apiUrl += '&year=' + year;
+        if (year) apiUrl += '&year=' + year; // Год подставляется только если он есть в базе (полезно для сериалов)
         
         fetchWithProxy(apiUrl, function (err, body) {
-            if (err || !body) return callback(emptyMarksData());
+            if (err || !body) {
+                // Если ошибка (например, нет интернета) - не кешируем, чтобы скрипт попробовал еще раз позже
+                return callback(emptyMarksData());
+            }
 
             try {
                 var parsed = JSON.parse(body);
@@ -140,11 +131,8 @@
                 best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
                 best._ts = Date.now();
                 
-                // Кэшируем только если что-то нашли, чтобы при временном сбое пустой результат не висел сутки
-                if (!best.empty) {
-                    jacredCache[cacheKey] = best;
-                    Lampa.Storage.set(cacheKey, best);
-                }
+                jacredCache[cacheKey] = best;
+                Lampa.Storage.set(cacheKey, best);
 
                 callback(best);
             } catch (e5) {
@@ -166,7 +154,7 @@
         url += '&type=' + type;
 
         var network = new Lampa.Reguest();
-        network.timeout(3000); // Снижено с 5000 до 3000
+        network.timeout(5000);
         network.silent(url, function (json) {
             callback(Boolean(json && json.ok && json.items && json.items.length > 0));
         }, function () {
@@ -175,7 +163,7 @@
     }
 
     function checkUafixDirect(movie, callback) {
-        var query = movie.title || movie.name || movie.original_title || movie.original_name || '';
+        var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
         if (!query) return callback(false);
 
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
@@ -189,7 +177,7 @@
     function checkUafix(movie, callback) {
         if (!movie || !movie.id) return callback(false);
 
-        var key = 'marks_uafix_v2_' + movie.id;
+        var key = 'marks_uafix_v3_' + movie.id;
         if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
 
         checkUafixBandera(movie, function (result) {

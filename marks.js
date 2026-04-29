@@ -3,7 +3,7 @@
 
     /**
      * МОДУЛЬ МЕТОК (MARKS) ДЛЯ LAMPA
-     * Версия: 2.0.3 (Full & Extended)
+     * Версия: 2.0.0 (Extended)
      * * ПАРАМЕТРЫ КОНФИГУРАЦИИ:
      * Если у вас есть личный прокси-сервер, укажите его ниже.
      */
@@ -169,7 +169,7 @@
 
         // Подготовка поискового запроса
         var cleanTitle = (movie.original_title || movie.title || movie.name || '');
-        // Исправленная очистка: убираем символы, мешающие Jacred
+        // Исправлено: добавлена очистка точек и тире для корректного поиска в Jacred
         cleanTitle = cleanTitle.replace(/[/\-—:·,.]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
         
         var dateValue = movie.release_date || movie.first_air_date || '';
@@ -291,7 +291,7 @@
                 quality: 'SD' 
             };
 
-            if (response && response.ok && response.items) {
+            if (response && response.items) {
                 response.items.forEach(function(item) {
                     var lowTitle = item.title.toLowerCase();
                     
@@ -316,6 +316,7 @@
             }
             callback(metadata);
         }, function () {
+            // В случае ошибки возвращаем пустой объект, чтобы не прерывать цепочку
             callback(null);
         });
     }
@@ -329,10 +330,12 @@
             getOnlineMetaData(movie, function (onlineData) {
                 var finalData = torrentData;
 
+                // Если онлайн-база нашла то, чего нет в торрентах, добавляем
                 if (onlineData) {
                     if (onlineData.ukr) finalData.ukr = true;
                     if (onlineData.rus) finalData.rus = true;
                     
+                    // Обновляем разрешение, если в онлайне оно выше
                     if (onlineData.quality === '4K') {
                         finalData.resolution = '4K';
                     } else if (finalData.resolution === 'SD' && onlineData.quality === 'FHD') {
@@ -340,7 +343,8 @@
                     }
                 }
 
-                if (finalData.ukr || finalData.rus || finalData.eng || finalData.resolution !== 'SD' || finalData.hdr || finalData.dolbyVision) {
+                // Помечаем объект как не пустой, если найден хотя бы один параметр
+                if (finalData.ukr || finalData.rus || finalData.eng || finalData.resolution !== 'SD') {
                     finalData.empty = false;
                 }
 
@@ -383,6 +387,7 @@
     function drawMarksInContainer(container, data, movie, $card) {
         container.empty();
 
+        // Проверка глобального включения
         if (!isSettingEnabled('marks_enabled', true)) {
             return;
         }
@@ -410,12 +415,13 @@
             }
         }
 
-        // 3. Секция технологий (HDR/Vision/Atmos)
+        // 3. Секция технологий (HDR/Vision)
         if (isSettingEnabled('marks_hdr', true)) {
             if (data.hdr) {
                 container.append(buildBadgeElement('hdr', 'HDR'));
             }
             if (data.dolbyVision) {
+                // Исправлено: добавлен корректный класс для DV
                 container.append(buildBadgeElement('dv', 'DV'));
             }
             if (data.atmos) {
@@ -429,6 +435,7 @@
             if (score > 0) {
                 var scoreBadge = buildBadgeElement('rating', '★ ' + score.toFixed(1));
                 container.append(scoreBadge);
+                // Скрываем стандартный рейтинг Lampa через CSS класс
                 if ($card) {
                     $card.addClass('likhtar-hide-native-rating');
                 }
@@ -441,15 +448,19 @@
      */
     function applyMarksToCard(cardElement, movie) {
         var $card = $(cardElement);
+        
+        // Определяем место для вставки (внутри card__view или в корень)
         var targetArea = $card.find('.card__view').first();
         if (!targetArea.length) {
             targetArea = $card;
         }
 
+        // Установка относительного позиционирования для контейнера
         if (targetArea.css('position') === 'static') {
             targetArea.css('position', 'relative');
         }
 
+        // Поиск или создание контейнера меток
         var container = targetArea.find('.likhtar-marks-wrapper');
         if (!container.length) {
             container = $('<div class="likhtar-marks-wrapper"></div>');
@@ -485,6 +496,7 @@
             var self = $(this);
             var movieData = getMovieObject(this);
             
+            // Обрабатываем только если есть ID и это не технический элемент (size)
             if (movieData && movieData.id && !movieData.size) {
                 self.addClass('likhtar-processed');
                 applyMarksToCard(this, movieData);
@@ -499,6 +511,7 @@
         if (!movie || !movie.id || !htmlElement) return;
         
         var $root = $(htmlElement);
+        // Находим постер в детальном описании
         var posterWrap = $root.find('.full-start__poster, .full-start-new__poster').first();
         
         if (posterWrap.length) {
@@ -520,13 +533,10 @@
                     fullContainer.append('<div class="likhtar-full-badge">' + data.resolution + ' Quality</div>');
                 }
                 if (data.hdr) {
-                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--hdr">HDR</div>');
+                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--hdr">High Dynamic Range</div>');
                 }
                 if (data.dolbyVision) {
                     fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--dv">Dolby Vision</div>');
-                }
-                if (data.atmos) {
-                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--atmos">Atmos</div>');
                 }
             });
         }
@@ -534,6 +544,7 @@
 
     /**
      * НАБЛЮДАТЕЛЬ ЗА ИЗМЕНЕНИЯМИ DOM
+     * Позволяет обрабатывать карточки, которые подгружаются динамически при скролле.
      */
     function startDomObserver() {
         var timer = null;
@@ -561,6 +572,7 @@
             subtree: true 
         });
 
+        // Первый запуск
         scanAndProcessCards();
     }
 
@@ -655,13 +667,14 @@
                 top: 0.5em;
                 left: 0.5em;
                 display: flex;
-                flex-direction: column; /* ВОЗВРАЩЕНО: ВЕРТИКАЛЬНО */
+                flex-direction: column;
                 align-items: flex-start;
                 gap: 0.25em;
                 z-index: 15;
                 pointer-events: none;
             }
 
+            /* Базовый стиль метки */
             .likhtar-badge {
                 padding: 0.2em 0.5em;
                 font-size: 0.75em;
@@ -675,17 +688,46 @@
                 line-height: 1.2;
             }
 
-            .likhtar-badge--ua { background: linear-gradient(135deg, #0056b3, #00a2ff); }
-            .likhtar-badge--ru { background: linear-gradient(135deg, #222, #444); }
-            .likhtar-badge--en { background: linear-gradient(135deg, #1b3a4b, #212529); }
-            .likhtar-badge--4k { background: linear-gradient(135deg, #d35400, #f39c12); }
-            .likhtar-badge--fhd { background: linear-gradient(135deg, #6a11cb, #2575fc); }
-            .likhtar-badge--hd { background: linear-gradient(135deg, #27ae60, #2ecc71); }
-            .likhtar-badge--hdr { background: linear-gradient(135deg, #8e44ad, #9b59b6); }
-            .likhtar-badge--dv { background: #1a1a1a; color: #d4af37; border-color: #d4af37; }
-            .likhtar-badge--atmos { background: #000; color: #00d2ff; border-color: #00d2ff; }
-            .likhtar-badge--rating { background: rgba(0, 0, 0, 0.85); color: #ffcc00; border-color: rgba(255, 204, 0, 0.4); }
+            /* Цветовые схемы для меток */
+            .likhtar-badge--ua {
+                background: linear-gradient(135deg, #0056b3, #00a2ff);
+                border-color: rgba(0,162,255,0.3);
+            }
+            .likhtar-badge--ru {
+                background: linear-gradient(135deg, #222, #444);
+            }
+            .likhtar-badge--en {
+                background: linear-gradient(135deg, #1b3a4b, #212529);
+            }
+            .likhtar-badge--4k {
+                background: linear-gradient(135deg, #d35400, #f39c12);
+            }
+            .likhtar-badge--fhd {
+                background: linear-gradient(135deg, #6a11cb, #2575fc);
+            }
+            .likhtar-badge--hd {
+                background: linear-gradient(135deg, #27ae60, #2ecc71);
+            }
+            .likhtar-badge--hdr {
+                background: linear-gradient(135deg, #8e44ad, #9b59b6);
+            }
+            .likhtar-badge--dv {
+                background: #1a1a1a;
+                color: #d4af37;
+                border: 1px solid #d4af37;
+            }
+            .likhtar-badge--atmos {
+                background: #000;
+                color: #00d2ff;
+                border-color: #00d2ff;
+            }
+            .likhtar-badge--rating {
+                background: rgba(0, 0, 0, 0.85);
+                color: #ffcc00;
+                border-color: rgba(255, 204, 0, 0.4);
+            }
 
+            /* Стили для полной карточки */
             .likhtar-full-container {
                 position: absolute;
                 top: 1.5em;
@@ -706,7 +748,12 @@
                 text-align: center;
                 backdrop-filter: blur(4px);
             }
+            .likhtar-full-badge--ua { border-color: #00a2ff; color: #00a2ff; }
+            .likhtar-full-badge--ru { border-color: #777; color: #ccc; }
+            .likhtar-full-badge--hdr { border-color: #9b59b6; color: #d782ff; }
+            .likhtar-full-badge--dv { border-color: #d4af37; color: #d4af37; }
 
+            /* Скрытие стандартного рейтинга */
             .card.likhtar-hide-native-rating .card__vote {
                 display: none !important;
             }
@@ -718,16 +765,23 @@
      * ТОЧКА ВХОДА
      */
     function initializePlugin() {
-        console.log('Marks: Initializing full module...');
+        console.log('Marks: Initializing extended module...');
+        
+        // 1. Настройки и стили
         registerModuleSettings();
         injectDetailedStyles();
+
+        // 2. Активация наблюдателей
         startDomObserver();
         attachLampaListeners();
+
+        // 3. Финальная перерисовка через небольшую паузу
         setTimeout(function() {
             resetMarks();
         }, 500);
     }
 
+    // Ожидание готовности Lampa
     if (window.appready) {
         initializePlugin();
     } else {

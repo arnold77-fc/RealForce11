@@ -1,612 +1,804 @@
 (function () {
     'use strict';
 
-    if (window.marks_module_v1) return;
+    /**
+     * МОДУЛЬ МЕТОК (MARKS) ДЛЯ LAMPA
+     * Версия: 2.0.1 (Fixed & Full)
+     * * ПАРАМЕТРЫ КОНФИГУРАЦИИ:
+     * Если у вас есть личный прокси-сервер, укажите его ниже.
+     */
+    var STABLE_PROXY = 'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url='; 
+
+    // Глобальный флаг для предотвращения дублирования скрипта
+    if (window.marks_module_v1) {
+        console.log('Marks: Module already loaded.');
+        return;
+    }
     window.marks_module_v1 = true;
 
+    // Проверка окружения Lampa
     if (typeof Lampa === 'undefined') {
-        console.warn('Marks: Lampa not found');
+        console.error('Marks: Lampa environment not detected.');
         return;
     }
 
+    /**
+     * ХРАНИЛИЩА КЭША
+     * Используются для минимизации количества сетевых запросов.
+     */
     var jacredCache = {};
-    var uafixCache = {};
+    var onlineCache = {};
+    var uafixCache  = {};
 
+    /**
+     * Функция получения настроек из хранилища Lampa.
+     * @param {string} key - Ключ настройки.
+     * @param {any} defaultVal - Значение по умолчанию.
+     */
     function isSettingEnabled(key, defaultVal) {
         var val = Lampa.Storage.get(key, defaultVal);
+        if (val === null || val === undefined) {
+            return defaultVal;
+        }
+        // Обработка строковых значений из хранилища
         return val !== false && val !== 'false' && val !== 0 && val !== '0';
     }
 
+    /**
+     * Создание стандартного объекта данных для нового фильма.
+     */
     function emptyMarksData() {
         return {
+            empty: true,
             resolution: 'SD',
             ukr: false,
-            eng: false,
             rus: false,
-            multi: false,
+            eng: false,
             hdr: false,
             dolbyVision: false,
-            atmos: false
+            atmos: false,
+            _ts: 0
         };
     }
 
-    // Ускоренный метод запросов через встроенный движок Lampa
-    function fastFetchApi(url, callback) {
-        var network = new Lampa.Reguest();
-        network.timeout(3000); // Быстрый таймаут для ускорения загрузки карточек
-        
-        // Сначала пробуем прямой запрос (для своих серверов работает мгновенно)
-        network.silent(url, function (json) {
-            callback(null, json);
-        }, function () {
-            // При ошибке CORS пробуем быстрый raw-прокси
-            var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-            var netProxy = new Lampa.Reguest();
-            netProxy.timeout(3500);
-            netProxy.silent(proxyUrl, function (jsonProxy) {
-                callback(null, jsonProxy);
+    /**
+     * ОСНОВНОЙ МЕТОД ЗАПРОСОВ (FETCH)
+     * Поддерживает работу через указанный прокси или через цепочку публичных CORS-прокси.
+     */
+    function fetchWithProxy(url, callback) {
+        if (STABLE_PROXY) {
+            var network = new Lampa.Reguest();
+            network.timeout(12000);
+            network.silent(STABLE_PROXY + encodeURIComponent(url), function (body) {
+                var responseData = typeof body === 'string' ? body : JSON.stringify(body);
+                callback(null, responseData);
             }, function () {
-                callback(new Error('All fetches failed'), null);
+                console.warn('Marks: Primary proxy failed, switching to fallback...');
+                fallbackToOriginalProxies(url, callback);
             });
+            return;
+        }
+        fallbackToOriginalProxies(url, callback);
+    }
+
+    /**
+     * Список публичных прокси-серверов для обхода ограничений CORS.
+     */
+    function fallbackToOriginalProxies(url, callback) {
+        var proxies = [
+            'https://api.allorigins.win/get?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://thingproxy.freeboard.io/fetch/',
+            'https://api.codetabs.com/v1/proxy?quest='
+        ];
+
+        function request(reqUrl, setHeaders, onFail) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', reqUrl, true);
+            
+            if (typeof setHeaders === 'function') {
+                setHeaders(xhr);
+            }
+
+            xhr.onload = function () {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    callback(null, xhr.responseText);
+                } else {
+                    onFail();
+                }
+            };
+
+            xhr.onerror = function() { onFail(); };
+            xhr.timeout = 10000;
+            xhr.ontimeout = function() { onFail(); };
+            xhr.send();
+        }
+
+        function tryProxy(index) {
+            if (index >= proxies.length) {
+                console.error('Marks: All fallback proxies failed.');
+                return callback(new Error('All proxies failed'), null);
+            }
+
+            var proxy = proxies[index];
+            var finalUrl = (proxy.indexOf('allorigins') > -1 || proxy.indexOf('codetabs') > -1) 
+                ? proxy + encodeURIComponent(url) 
+                : proxy + url;
+
+            request(finalUrl, function (xhr) {
+                if (proxy.indexOf('herokuapp') > -1) {
+                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                }
+            }, function () {
+                tryProxy(index + 1);
+            });
+        }
+
+        request(url, null, function () {
+            tryProxy(0);
         });
     }
 
-    function getBestData(movie, callback) {
-        var cacheKey = 'marks_data_v2_' + movie.id;
-        if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
+    /**
+     * ФУНКЦИЯ ПОИСКА В JACRED (ТОРРЕНТЫ)
+     * Анализирует заголовки раздач для определения качества и звука.
+     */
+    function getBestJacred(movie, callback) {
+        var movieId = movie.id;
+        var cacheKey = 'marks_full_extended_' + movieId;
 
-        try {
-            var raw = Lampa.Storage.get(cacheKey, '');
-            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 48 * 60 * 60 * 1000)) {
-                jacredCache[cacheKey] = raw;
-                return callback(raw);
-            }
-        } catch (e) { }
-
-        var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
-        var dateRaw = movie.release_date || movie.first_air_date || '';
-        var year = String(dateRaw).substr(0, 4);
-        var rYear = parseInt(year, 10) || 0;
-
-        // Предварительная оценка качества для ВСЕХ фильмов, если API ничего не найдет
-        var fallbackRes = 'SD';
-        if (rYear >= 2018) fallbackRes = '4K';
-        else if (rYear >= 2010) fallbackRes = 'FHD';
-        else if (rYear >= 2000) fallbackRes = 'HD';
-
-        if (!title || !year) {
-            var empty = emptyMarksData();
-            empty.resolution = fallbackRes;
-            return callback(empty);
+        // 1. Проверка оперативного кэша
+        if (jacredCache[cacheKey]) {
+            return callback(jacredCache[cacheKey]);
         }
 
-        // Пользовательский сервер (по умолчанию jac.red)
-        var customApiBase = Lampa.Storage.get('marks_custom_api', 'https://jac.red/api/v1/search');
-        var separator = customApiBase.indexOf('?') >= 0 ? '&' : '?';
-        var apiUrl = customApiBase + separator + 'query=' + encodeURIComponent(title) + '&year=' + year;
+        // 2. Проверка долговременного кэша (LocalStorage)
+        try {
+            var cachedRaw = Lampa.Storage.get(cacheKey, '');
+            if (cachedRaw && typeof cachedRaw === 'object' && cachedRaw._ts) {
+                var now = Date.now();
+                var lifeTime = 48 * 60 * 60 * 1000; // 48 часов
+                if (now - cachedRaw._ts < lifeTime) {
+                    jacredCache[cacheKey] = cachedRaw;
+                    return callback(cachedRaw);
+                }
+            }
+        } catch (e) {
+            console.log('Marks: Cache read error.');
+        }
+
+        // Подготовка поискового запроса
+        var cleanTitle = (movie.original_title || movie.title || movie.name || '');
+        // ИСПРАВЛЕНО: Улучшенная очистка заголовка для корректного поиска (добавлены точки и тире)
+        cleanTitle = cleanTitle.replace(/[/\-—:·,.]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
         
-        fastFetchApi(apiUrl, function (err, body) {
-            var best = emptyMarksData();
-            
-            if (err || !body) {
-                best.resolution = fallbackRes; // Ставим качество даже при ошибке/отсутствии
-                return callback(best);
+        var dateValue = movie.release_date || movie.first_air_date || '';
+        var releaseYear = String(dateValue).substr(0, 4);
+
+        if (!cleanTitle) {
+            return callback(emptyMarksData());
+        }
+
+        var jacUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(cleanTitle);
+        if (releaseYear) {
+            jacUrl += '&year=' + releaseYear;
+        }
+        
+        fetchWithProxy(jacUrl, function (err, responseBody) {
+            if (err || !responseBody) {
+                return callback(emptyMarksData());
             }
 
             try {
-                var parsed = typeof body === 'string' ? JSON.parse(body) : body;
-                var results = Array.isArray(parsed) ? parsed : (parsed.torrents || parsed.items || parsed.results || [parsed]);
+                var json = JSON.parse(responseBody);
+                // Поддержка разных форматов ответа Jacred
+                var items = Array.isArray(json) ? json : (json.torrents || []);
                 
-                if (results.length === 0) {
-                    best.resolution = fallbackRes;
-                } else {
-                    var bestRes = 'SD';
-                    var lock4k = false;
-
-                    results.forEach(function (item) {
-                        // Превращаем весь объект в строку, чтобы искать по любым структурам сторонних API
-                        var t = (item.title || item.name || JSON.stringify(item)).toLowerCase();
-                        if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0 || t.indexOf('экранка') >= 0) return;
-
-                        var is4k = (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0);
-                        var isFhd = (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0);
-                        var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
-
-                        if (is4k) {
-                            bestRes = '4K';
-                            lock4k = true;
-                        } else if (!lock4k) {
-                            if (isFhd) bestRes = 'FHD';
-                            else if (isHd && bestRes === 'SD') bestRes = 'HD';
-                        }
-
-                        // Поиск ВСЕХ озвучек
-                        if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('укр') >= 0) best.ukr = true;
-                        if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0 || t.indexOf('оригинал') >= 0) best.eng = true;
-                        if (t.indexOf('rus') >= 0 || t.indexOf('рус') >= 0 || t.indexOf('росс') >= 0) best.rus = true;
-                        if (t.indexOf('dub') >= 0 || t.indexOf('дуб') >= 0 || t.indexOf('mvo') >= 0 || t.indexOf('dvo') >= 0 || t.indexOf('многоголос') >= 0) best.multi = true;
-
-                        // Поиск HDR/Звука
-                        if (t.indexOf('hdr') >= 0) best.hdr = true;
-                        if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
-                        if (t.indexOf('atmos') >= 0) best.atmos = true;
+                // Если пусто, пробуем поиск без года
+                if (items.length === 0 && releaseYear) {
+                    var retryUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(cleanTitle);
+                    fetchWithProxy(retryUrl, function(e2, b2) {
+                        if (e2 || !b2) return callback(emptyMarksData());
+                        parseAndCacheJacred(JSON.parse(b2), cacheKey, callback);
                     });
-                    
-                    best.resolution = bestRes !== 'SD' ? bestRes : fallbackRes;
+                } else {
+                    parseAndCacheJacred(json, cacheKey, callback);
                 }
-
-                best._ts = Date.now();
-                jacredCache[cacheKey] = best;
-                Lampa.Storage.set(cacheKey, best);
-
-                callback(best);
-            } catch (e5) {
-                best.resolution = fallbackRes;
-                callback(best);
+            } catch (e) {
+                callback(emptyMarksData());
             }
         });
     }
 
-    function checkUafixBandera(movie, callback) {
-        var title = movie.title || movie.name || '';
-        var origTitle = movie.original_title || movie.original_name || '';
-        var imdbId = movie.imdb_id || '';
-        var type = movie.name ? 'series' : 'movie';
+    /**
+     * Парсинг сырых данных из торрент-ответов.
+     */
+    function parseAndCacheJacred(json, cacheKey, callback) {
+        var torrents = Array.isArray(json) ? json : (json.torrents || []);
+        var data = emptyMarksData();
+        
+        // Устанавливаем статус, если найдены торренты
+        if (torrents.length > 0) data.empty = false;
 
-        var url = 'https://banderabackend.lampame.v6.rocks/api/v2/search?source=uaflix';
-        if (title) url += '&title=' + encodeURIComponent(title);
-        if (origTitle) url += '&original_title=' + encodeURIComponent(origTitle);
-        if (imdbId) url += '&imdb_id=' + encodeURIComponent(imdbId);
-        url += '&type=' + type;
+        var maxRank = 0; // 0:SD, 1:720p, 2:1080p, 3:2160p
 
-        var network = new Lampa.Reguest();
-        network.timeout(3000);
-        network.silent(url, function (json) {
-            callback(Boolean(json && json.ok && json.items && json.items.length > 0));
+        torrents.forEach(function (torrent) {
+            var t = String(torrent.title || '').toLowerCase();
+            
+            // Игнорируем экранки (CamRip, TS)
+            if (t.indexOf('cam') > -1 || t.indexOf('ts') > -1 || t.indexOf('telesync') > -1) {
+                return;
+            }
+
+            // Определение разрешения
+            if (t.indexOf('4k') > -1 || t.indexOf('2160') > -1 || t.indexOf('uhd') > -1) {
+                maxRank = 3;
+            } else if (maxRank < 2 && (t.indexOf('1080') > -1 || t.indexOf('fhd') > -1)) {
+                maxRank = 2;
+            } else if (maxRank < 1 && (t.indexOf('720') > -1 || t.indexOf('hd') > -1)) {
+                maxRank = 1;
+            }
+
+            // Определение языков озвучки
+            if (t.indexOf('ukr') > -1 || t.indexOf('ua') > -1 || t.indexOf('ukrainian') > -1) {
+                data.ukr = true;
+            }
+            if (t.indexOf('rus') > -1 || t.indexOf('ru') > -1 || t.indexOf(' rus ') > -1) {
+                data.rus = true;
+            }
+            if (t.indexOf('eng') > -1 || t.indexOf('original') > -1 || t.indexOf('en') > -1) {
+                data.eng = true;
+            }
+            
+            // Определение визуальных и звуковых технологий
+            if (t.indexOf('hdr') > -1) {
+                data.hdr = true;
+            }
+            if (t.indexOf('dv') > -1 || t.indexOf('dolby vision') > -1 || t.indexOf(' dvision') > -1) {
+                data.dolbyVision = true;
+            }
+            if (t.indexOf('atmos') > -1) {
+                data.atmos = true;
+            }
+        });
+
+        var resStrings = ['SD', 'HD', 'FHD', '4K'];
+        data.resolution = resStrings[maxRank];
+        data._ts = Date.now();
+        
+        // Сохранение в кэш
+        jacredCache[cacheKey] = data;
+        Lampa.Storage.set(cacheKey, data);
+
+        callback(data);
+    }
+
+    /**
+     * ПОИСК ПО ОНЛАЙН СЕРВИСАМ (Bandera / Online Aggregator)
+     * Дополняет данные о наличии озвучек в онлайн-кинотеатрах.
+     */
+    function getOnlineMetaData(movie, callback) {
+        var searchTitle = (movie.title || movie.name || '').toLowerCase();
+        var searchOrig  = (movie.original_title || movie.original_name || '').toLowerCase();
+        
+        var baseUrl = 'https://banderabackend.lampame.v6.rocks/api/v2/search';
+        var params = '?title=' + encodeURIComponent(searchTitle) + '&original_title=' + encodeURIComponent(searchOrig);
+        
+        var request = new Lampa.Reguest();
+        request.timeout(6000);
+        request.silent(baseUrl + params, function (response) {
+            var metadata = { 
+                ukr: false, 
+                rus: false, 
+                quality: 'SD' 
+            };
+
+            if (response && response.ok && response.items) {
+                response.items.forEach(function(item) {
+                    var lowTitle = item.title.toLowerCase();
+                    
+                    // Поиск украинских меток
+                    if (lowTitle.indexOf('ua') > -1 || item.source === 'uaflix' || lowTitle.indexOf('ukr') > -1) {
+                        metadata.ukr = true;
+                    }
+                    // Поиск русских меток
+                    if (lowTitle.indexOf('ru') > -1 || item.source === 'rezka' || lowTitle.indexOf('rus') > -1) {
+                        metadata.rus = true;
+                    }
+                    // Поиск качества
+                    if (item.quality) {
+                        var q = item.quality.toUpperCase();
+                        if (q.indexOf('4K') > -1 || q.indexOf('2160') > -1) {
+                            metadata.quality = '4K';
+                        } else if (metadata.quality !== '4K' && q.indexOf('1080') > -1) {
+                            metadata.quality = 'FHD';
+                        }
+                    }
+                });
+            }
+            callback(metadata);
         }, function () {
+            // В случае ошибки возвращаем пустой объект, чтобы не прерывать цепочку
             callback(null);
         });
     }
 
-    function checkUafix(movie, callback) {
-        if (!movie || !movie.id) return callback(false);
+    /**
+     * ГЛАВНЫЙ МЕНЕДЖЕР ДАННЫХ
+     * Собирает информацию из Jacred и онлайн-баз, объединяя результаты.
+     */
+    function resolveAllMarks(movie, callback) {
+        getBestJacred(movie, function (torrentData) {
+            getOnlineMetaData(movie, function (onlineData) {
+                var finalData = torrentData;
 
-        var key = 'marks_uafix_v2_' + movie.id;
-        if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
+                // Если онлайн-база нашла то, чего нет в торрентах, добавляем
+                if (onlineData) {
+                    if (onlineData.ukr) finalData.ukr = true;
+                    if (onlineData.rus) finalData.rus = true;
+                    
+                    // Обновляем разрешение, если в онлайне оно выше
+                    if (onlineData.quality === '4K') {
+                        finalData.resolution = '4K';
+                    } else if (finalData.resolution === 'SD' && onlineData.quality === 'FHD') {
+                        finalData.resolution = 'FHD';
+                    }
+                }
 
-        checkUafixBandera(movie, function (result) {
-            if (result !== null) {
-                uafixCache[key] = result;
-                callback(result);
-            } else {
-                callback(false);
-            }
+                // Помечаем объект как не пустой, если найден хотя бы один параметр
+                if (finalData.ukr || finalData.rus || finalData.eng || finalData.resolution !== 'SD') {
+                    finalData.empty = false;
+                }
+
+                callback(finalData);
+            });
         });
     }
 
-    function getMovieFromCard(cardNode) {
-        var card = $(cardNode);
-        return cardNode.heroMovieData || card.data('item') || cardNode.card_data || cardNode.item || null;
+    /**
+     * Вспомогательный метод для получения объекта фильма из узла DOM.
+     */
+    function getMovieObject(node) {
+        var $node = $(node);
+        return node.heroMovieData || $node.data('item') || node.card_data || node.item || null;
     }
 
-    function extractRating(movie) {
+    /**
+     * Извлечение числового значения рейтинга.
+     */
+    function getNumericRating(movie) {
         if (!movie) return 0;
-        var candidates = [movie.imdb_rating, movie.kp_rating, movie.vote_average, movie.rating, movie.rate];
-        for (var i = 0; i < candidates.length; i++) {
-            if (candidates[i] === undefined || candidates[i] === null || candidates[i] === '') continue;
-            var n = parseFloat(String(candidates[i]).replace(',', '.'));
-            if (!isNaN(n) && n > 0) return n;
-        }
-        return 0;
+        var r = movie.imdb_rating || movie.kp_rating || movie.vote_average || movie.rating || movie.rate || 0;
+        var parsed = parseFloat(String(r).replace(',', '.'));
+        return isNaN(parsed) ? 0 : parsed;
     }
 
-    function resolveMarks(movie, callback) {
-        getBestData(movie, function (bestData) {
-            if (!bestData.ukr) {
-                checkUafix(movie, function (hasUafix) {
-                    if (hasUafix) bestData.ukr = true;
-                    callback(bestData);
-                });
-            } else {
-                callback(bestData);
-            }
-        });
+    /**
+     * СОЗДАНИЕ ВИЗУАЛЬНОЙ МЕТКИ (BADGE)
+     */
+    function buildBadgeElement(className, text) {
+        var el = document.createElement('div');
+        el.className = 'likhtar-badge likhtar-badge--' + className;
+        el.textContent = text;
+        return el;
     }
 
-    function createCardBadge(cssClass, label) {
-        var badge = document.createElement('div');
-        badge.classList.add('likhtar-marks-badge');
-        badge.classList.add('likhtar-marks-badge--' + cssClass);
-        badge.textContent = label;
-        return badge;
-    }
-
-    function renderCardBadges(container, data, movie, cardRoot) {
+    /**
+     * ОТРИСОВКА МЕТОК В КОНТЕЙНЕРЕ КАРТОЧКИ
+     */
+    function drawMarksInContainer(container, data, movie, $card) {
         container.empty();
-        if (!isSettingEnabled('marks_enabled', false)) return;
 
-        // Отрисовка языков
-        if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
-        if (data.rus && isSettingEnabled('marks_ru', false)) container.append(createCardBadge('ru', 'RU'));
-        if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
-        if (data.multi && isSettingEnabled('marks_multi', false)) container.append(createCardBadge('multi', 'DUB'));
-
-        // Отрисовка качества (теперь на всех фильмах)
-        if (data.resolution) {
-            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) {
-                container.append(createCardBadge('4k', '4K'));
-            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('fhd', '1080p'));
-            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('hd', '720p'));
-            } else if (data.resolution === 'SD' && isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('sd', 'SD'));
-            }
-        }
-
-        if (isSettingEnabled('marks_hdr', false)) {
-            if (data.hdr) container.append(createCardBadge('hdr', 'HDR'));
-            if (data.dolbyVision) container.append(createCardBadge('hdr', 'DV'));
-            if (data.atmos) container.append(createCardBadge('atmos', 'Atmos'));
-        }
-
-        var hasCustomRating = false;
-        if (isSettingEnabled('marks_rating', false)) {
-            var rating = extractRating(movie);
-            if (rating > 0 && String(rating) !== '0.0') {
-                var rBadge = document.createElement('div');
-                rBadge.classList.add('likhtar-marks-badge', 'likhtar-marks-badge--rating');
-                rBadge.innerHTML = '<span class="likhtar-marks-star">&#9733;</span>' + rating.toFixed(1);
-                container.append(rBadge);
-                hasCustomRating = true;
-            }
-        }
-
-        if (cardRoot && cardRoot.length) {
-            if (hasCustomRating) cardRoot.addClass('likhtar-marks-has-custom-rating');
-            else cardRoot.removeClass('likhtar-marks-has-custom-rating');
-        }
-    }
-
-    function addMarksToCard(card, movie, viewSelector) {
-        if (!isSettingEnabled('marks_enabled', false)) return;
-
-        var containerParent = viewSelector ? card.find(viewSelector).first() : card;
-        if (!containerParent.length) containerParent = card;
-
-        if (containerParent.css('position') === 'static') containerParent.css('position', 'relative');
-
-        var marksContainer = containerParent.find('.likhtar-marks-container').first();
-        if (!marksContainer.length) {
-            marksContainer = $('<div class="likhtar-marks-container"></div>');
-            containerParent.append(marksContainer);
-        }
-
-        resolveMarks(movie, function (bestData) {
-            renderCardBadges(marksContainer, bestData, movie, card);
-        });
-    }
-
-    function processCards(scopeNodes) {
-        var cardsToProcess;
-        if (scopeNodes && scopeNodes.length) {
-            var cardNodes = [];
-            for (var i = 0; i < scopeNodes.length; i++) {
-                var node = scopeNodes[i];
-                if (!node || node.nodeType !== 1) continue;
-                if (node.matches && node.matches('.card')) cardNodes.push(node);
-                var nested = node.querySelectorAll ? node.querySelectorAll('.card') : [];
-                for (var j = 0; j < nested.length; j++) cardNodes.push(nested[j]);
-            }
-            cardsToProcess = $(cardNodes).not('.likhtar-marks-processed');
-        } else {
-            cardsToProcess = $('.card').not('.likhtar-marks-processed');
-        }
-
-        cardsToProcess.each(function () {
-            var card = $(this);
-            var movie = getMovieFromCard(this);
-            if (!(movie && movie.id && !movie.size)) return;
-
-            card.addClass('likhtar-marks-processed');
-            if (card.hasClass('hero-banner')) addMarksToCard(card, movie, null);
-            else addMarksToCard(card, movie, '.card__view');
-        });
-    }
-
-    function renderFullBadges(container, data, movie) {
-        container.empty();
-        if (!isSettingEnabled('marks_enabled', false)) {
-            container.remove();
+        // Проверка глобального включения
+        if (!isSettingEnabled('marks_enabled', true)) {
             return;
         }
 
-        if (data.ukr && isSettingEnabled('marks_ua', false)) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA</div>');
-        if (data.rus && isSettingEnabled('marks_ru', false)) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ru">RU</div>');
-        if (data.multi && isSettingEnabled('marks_multi', false)) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--multi">DUB</div>');
+        // 1. Секция озвучек
+        if (data.ukr && isSettingEnabled('marks_ua', true)) {
+            container.append(buildBadgeElement('ua', 'UA'));
+        }
+        if (data.rus) {
+            container.append(buildBadgeElement('ru', 'RU'));
+        }
+        if (data.eng && isSettingEnabled('marks_en', true)) {
+            container.append(buildBadgeElement('en', 'EN'));
+        }
 
-        if (data.resolution) {
-            var resText = data.resolution;
-            if (resText === 'FHD') resText = '1080p';
-            else if (resText === 'HD') resText = '720p';
-
-            var showQuality = false;
-            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) showQuality = true;
-            else if ((data.resolution === 'FHD' || data.resolution === 'HD' || data.resolution === 'SD') && isSettingEnabled('marks_fhd', false)) showQuality = true;
-
-            if (showQuality) {
-                container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
+        // 2. Секция качества видео
+        if (data.resolution && data.resolution !== 'SD') {
+            var res = data.resolution;
+            if (res === '4K' && isSettingEnabled('marks_4k', true)) {
+                container.append(buildBadgeElement('4k', '4K'));
+            } else if (res === 'FHD' && isSettingEnabled('marks_fhd', true)) {
+                container.append(buildBadgeElement('fhd', '1080p'));
+            } else if (res === 'HD' && isSettingEnabled('marks_fhd', true)) {
+                container.append(buildBadgeElement('hd', '720p'));
             }
         }
 
-        if (isSettingEnabled('marks_hdr', false)) {
-            if (data.hdr) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
-            if (data.dolbyVision) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">DV</div>');
-            if (data.atmos) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Atmos</div>');
-        }
-
-        if (isSettingEnabled('marks_rating', false)) {
-            var rating = extractRating(movie);
-            if (rating > 0 && String(rating) !== '0.0') {
-                container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--rating">&#9733;' + rating.toFixed(1) + '</div>');
+        // 3. Секция технологий (ИСПРАВЛЕНО: Вывод HDR/DV/Atmos одновременно)
+        if (isSettingEnabled('marks_hdr', true)) {
+            if (data.hdr) {
+                container.append(buildBadgeElement('hdr', 'HDR'));
+            }
+            if (data.dolbyVision) {
+                container.append(buildBadgeElement('dv', 'DV'));
+            }
+            if (data.atmos) {
+                container.append(buildBadgeElement('atmos', 'ATMOS'));
             }
         }
-    }
 
-    function injectFullCardMarks(movie, renderEl) {
-        if (!movie || !movie.id || !renderEl) return;
-        var $render = $(renderEl);
-        if ($render.is('.applecation') || $render.find('.applecation').length) return;
-        if ($('.quality-badges-container').length) return;
-
-        var poster = $render.find('.full-start__poster, .full-start-new__poster').first();
-        if (poster.length) {
-            if ($render.find('.likhtar-marks-full').length) return;
-            poster.css('position', 'relative');
-            var posterBadges = $('<div class="likhtar-marks-full"></div>');
-            poster.append(posterBadges);
-            resolveMarks(movie, function (bestData) {
-                renderFullBadges(posterBadges, bestData, movie);
-            });
-        } else {
-            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rate-line').first();
-            if (!rateLine.length) return;
-            if ($render.find('.likhtar-marks-row').length) return;
-            var qualityRow = $('<div class="likhtar-marks-row"></div>');
-            rateLine.append(qualityRow);
-            resolveMarks(movie, function (bestData) {
-                renderFullBadges(qualityRow, bestData, movie);
-            });
-        }
-    }
-
-    function initCardObserver() {
-        var queued = false;
-        var pendingRoots = [];
-
-        function scheduleProcess(mutations) {
-            if (mutations && mutations.length) {
-                for (var i = 0; i < mutations.length; i++) {
-                    var added = mutations[i].addedNodes;
-                    for (var j = 0; j < added.length; j++) {
-                        if (added[j] && added[j].nodeType === 1) pendingRoots.push(added[j]);
-                    }
+        // 4. Рейтинг
+        if (isSettingEnabled('marks_rating', true)) {
+            var score = getNumericRating(movie);
+            if (score > 0) {
+                var scoreBadge = buildBadgeElement('rating', '★ ' + score.toFixed(1));
+                container.append(scoreBadge);
+                // Скрываем стандартный рейтинг Lampa через CSS класс
+                if ($card) {
+                    $card.addClass('likhtar-hide-native-rating');
                 }
             }
-
-            if (queued) return;
-            queued = true;
-
-            setTimeout(function () {
-                queued = false;
-                if (pendingRoots.length) {
-                    var batch = pendingRoots.slice(0);
-                    pendingRoots = [];
-                    processCards(batch);
-                } else {
-                    processCards();
-                }
-            }, 80);
         }
-
-        var observer = new MutationObserver(scheduleProcess);
-        var target = document.getElementById('app') || document.body;
-        observer.observe(target, { childList: true, subtree: true });
-
-        processCards();
-        setTimeout(processCards, 400);
-        setTimeout(processCards, 1500);
     }
 
-    function initFullCardObserver() {
-        if (!Lampa.Listener || !Lampa.Listener.follow) return;
-
-        Lampa.Listener.follow('full', function (e) {
-            if (e.type !== 'complite') return;
-            var movie = e.data && e.data.movie;
-            var renderEl = e.object && e.object.activity && e.object.activity.render && e.object.activity.render();
-            injectFullCardMarks(movie, renderEl);
-        });
-    }
-
-    function refreshAllMarks() {
-        try {
-            $('.likhtar-marks-container').remove();
-            $('.card').removeClass('likhtar-marks-processed likhtar-marks-has-custom-rating');
-            $('.likhtar-marks-full, .likhtar-marks-row').remove();
-            processCards();
-        } catch (e) { }
-
-        try {
-            var act = Lampa.Activity && Lampa.Activity.active && Lampa.Activity.active();
-            if (act && act.component === 'full') {
-                var movie = act.card || act.movie;
-                var renderEl = act.activity && act.activity.render && act.activity.render();
-                injectFullCardMarks(movie, renderEl);
-            }
-        } catch (e2) { }
-    }
-
-    function setupSettings() {
-        if (!Lampa.SettingsApi || !Lampa.SettingsApi.addParam) return;
-        if (window.marks_settings_added) return;
-        window.marks_settings_added = true;
-        var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4';
-
-        if (!Lampa.Storage.get(migrateKey, false)) {
-            if (Lampa.Storage.get('marks_enabled', null) === null) Lampa.Storage.set('marks_enabled', false);
-            Lampa.Storage.set('marks_ua', true);
-            Lampa.Storage.set('marks_ru', true);
-            Lampa.Storage.set('marks_multi', true);
-            Lampa.Storage.set('marks_en', true);
-            Lampa.Storage.set('marks_4k', true);
-            Lampa.Storage.set('marks_fhd', true);
-            Lampa.Storage.set('marks_hdr', true);
-            Lampa.Storage.set('marks_rating', true);
-            Lampa.Storage.set(migrateKey, true);
-        }
-
-        var refreshBadgesNow = function () { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); };
-
-        Lampa.SettingsApi.addParam({
-            component: targetComponent,
-            param: { type: 'title' },
-            field: { name: '\u041c\u0456\u0442\u043a\u0438 (Marks)' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: targetComponent,
-            param: { name: 'marks_enabled', type: 'trigger', default: false },
-            field: { name: 'Увімкнути модуль міток' },
-            onChange: refreshBadgesNow
-        });
-
-        // Настройка собственного API сервера
-        Lampa.SettingsApi.addParam({
-            component: targetComponent,
-            param: { name: 'marks_custom_api', type: 'input', default: 'https://jac.red/api/v1/search' },
-            field: { name: 'Custom API URL (Свой сервер)' },
-            onChange: refreshBadgesNow
-        });
-
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_ua', type: 'trigger', default: true }, field: { name: 'Показувати мітку UA' }, onChange: refreshBadgesNow });
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_ru', type: 'trigger', default: true }, field: { name: 'Показувати мітку RU' }, onChange: refreshBadgesNow });
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_multi', type: 'trigger', default: true }, field: { name: 'Показувати мітку DUB (Дубляж/Багатоголоска)' }, onChange: refreshBadgesNow });
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_en', type: 'trigger', default: true }, field: { name: 'Показувати мітку EN' }, onChange: refreshBadgesNow });
+    /**
+     * ИНИЦИАЛИЗАЦИЯ МЕТОК НА КОНКРЕТНОЙ КАРТОЧКЕ
+     */
+    function applyMarksToCard(cardElement, movie) {
+        var $card = $(cardElement);
         
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_4k', type: 'trigger', default: true }, field: { name: 'Показувати мітку 4K' }, onChange: refreshBadgesNow });
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_fhd', type: 'trigger', default: true }, field: { name: 'Показувати мітки 1080p / 720p / SD' }, onChange: refreshBadgesNow });
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_hdr', type: 'trigger', default: true }, field: { name: 'Показувати мітку HDR / Dolby Vision / Atmos' }, onChange: refreshBadgesNow });
-        Lampa.SettingsApi.addParam({ component: targetComponent, param: { name: 'marks_rating', type: 'trigger', default: true }, field: { name: 'Показувати мітку рейтингу' }, onChange: refreshBadgesNow });
-    }
+        // Определяем место для вставки (внутри card__view или в корень)
+        var targetArea = $card.find('.card__view').first();
+        if (!targetArea.length) {
+            targetArea = $card;
+        }
 
-    function injectStyle() {
-        if (document.getElementById('likhtar-marks-style-v2')) return;
+        // Установка относительного позиционирования для контейнера
+        if (targetArea.css('position') === 'static') {
+            targetArea.css('position', 'relative');
+        }
 
-        var style = document.createElement('style');
-        style.id = 'likhtar-marks-style-v2';
-        style.innerHTML = '\
-            .likhtar-marks-container {\
-                position: absolute;\
-                top: 2.8em;\
-                left: -0.2em;\
-                display: flex;\
-                flex-direction: column;\
-                gap: 0.2em;\
-                z-index: 20;\
-                pointer-events: none;\
-            }\
-            .hero-banner .likhtar-marks-container {\
-                top: 2.8em;\
-                left: 1.2em;\
-                gap: 0.3em;\
-            }\
-            .likhtar-marks-badge {\
-                padding: 0.32em 0.48em;\
-                font-size: 0.78em;\
-                font-weight: 800;\
-                line-height: 1;\
-                letter-spacing: 0.03em;\
-                border-radius: 0.32em;\
-                display: inline-flex;\
-                align-items: center;\
-                justify-content: center;\
-                align-self: flex-start;\
-                border: 1px solid rgba(255,255,255,0.16);\
-                box-shadow: 0 1px 5px rgba(0,0,0,0.35);\
-                color: #fff;\
-                white-space: nowrap;\
-            }\
-            .likhtar-marks-badge--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-badge--ru  { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
-            .likhtar-marks-badge--multi { background: linear-gradient(135deg, #00695c, #26a69a); border-color: rgba(38,166,154,0.4); }\
-            .likhtar-marks-badge--en  { background: linear-gradient(135deg, #37474f, #78909c); border-color: rgba(120,144,156,0.4); }\
-            .likhtar-marks-badge--4k  { background: linear-gradient(135deg, #e65100, #ff9800); border-color: rgba(255,152,0,0.4); }\
-            .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
-            .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-badge--sd  { background: linear-gradient(135deg, #5d4037, #8d6e63); border-color: rgba(141,110,99,0.4); }\
-            .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
-            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #424242, #757575); color: #fff; border-color: rgba(255,255,255,0.4); }\
-            .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
-            .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
-            .card.likhtar-marks-has-custom-rating .card__vote { display: none !important; }\
-            .likhtar-marks-full {\
-                position: absolute;\
-                top: 0.8em;\
-                right: 0.2em;\
-                display: flex;\
-                flex-direction: column;\
-                gap: 0.3em;\
-                z-index: 20;\
-                pointer-events: none;\
-            }\
-            .likhtar-marks-row {\
-                display: inline-flex;\
-                align-items: center;\
-                gap: 0.4em;\
-                flex-wrap: wrap;\
-            }\
-            .likhtar-marks-full-badge {\
-                display: inline-flex;\
-                align-items: center;\
-                justify-content: center;\
-                padding: 0.25em 0.5em;\
-                border-radius: 0.3em;\
-                border: 1px solid rgba(255,255,255,0.2);\
-                font-size: 0.75em;\
-                font-weight: 800;\
-                line-height: 1;\
-                letter-spacing: 0.04em;\
-                color: #fff;\
-                box-shadow: 0 2px 6px rgba(0,0,0,0.4);\
-            }\
-            .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-full-badge--ru { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
-            .likhtar-marks-full-badge--multi { background: linear-gradient(135deg, #00695c, #26a69a); border-color: rgba(38,166,154,0.4); }\
-            .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
-            .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
-        ';
-        document.head.appendChild(style);
-    }
+        // Поиск или создание контейнера меток
+        var container = targetArea.find('.likhtar-marks-wrapper');
+        if (!container.length) {
+            container = $('<div class="likhtar-marks-wrapper"></div>');
+            targetArea.append(container);
+        }
 
-    function runInit() {
-        setupSettings();
-        injectStyle();
-        window.MARKS_REFRESH = refreshAllMarks;
-        initCardObserver();
-        initFullCardObserver();
-        setTimeout(refreshAllMarks, 50);
-    }
-
-    if (window.appready) {
-        runInit();
-    } else if (Lampa.Listener && Lampa.Listener.follow) {
-        Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') runInit();
+        resolveAllMarks(movie, function (results) {
+            drawMarksInContainer(container, results, movie, $card);
         });
+    }
+
+    /**
+     * ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ ВСЕХ КАРТОЧЕК
+     */
+    function scanAndProcessCards(nodes) {
+        var cards;
+        
+        if (nodes && nodes.length) {
+            var found = [];
+            for (var i = 0; i < nodes.length; i++) {
+                var n = nodes[i];
+                if (n.nodeType !== 1) continue;
+                if ($(n).hasClass('card')) found.push(n);
+                var inner = n.querySelectorAll ? n.querySelectorAll('.card') : [];
+                for (var j = 0; j < inner.length; j++) found.push(inner[j]);
+            }
+            cards = $(found).not('.likhtar-processed');
+        } else {
+            cards = $('.card').not('.likhtar-processed');
+        }
+
+        cards.each(function () {
+            var self = $(this);
+            var movieData = getMovieObject(this);
+            
+            // Обрабатываем только если есть ID и это не технический элемент (size)
+            if (movieData && movieData.id && !movieData.size) {
+                self.addClass('likhtar-processed');
+                applyMarksToCard(this, movieData);
+            }
+        });
+    }
+
+    /**
+     * ОТРИСОВКА В ПОЛНОЙ КАРТОЧКЕ (DETAIL VIEW)
+     */
+    function injectFullViewMarks(movie, htmlElement) {
+        if (!movie || !movie.id || !htmlElement) return;
+        
+        var $root = $(htmlElement);
+        // Находим постер в детальном описании
+        var posterWrap = $root.find('.full-start__poster, .full-start-new__poster').first();
+        
+        if (posterWrap.length) {
+            if ($root.find('.likhtar-full-container').length) return;
+            
+            posterWrap.css('position', 'relative');
+            var fullContainer = $('<div class="likhtar-full-container"></div>');
+            posterWrap.append(fullContainer);
+
+            resolveAllMarks(movie, function (data) {
+                fullContainer.empty();
+                if (data.ukr) {
+                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--ua">Українська озвучка</div>');
+                }
+                if (data.rus) {
+                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--ru">Русская озвучка</div>');
+                }
+                if (data.resolution !== 'SD') {
+                    fullContainer.append('<div class="likhtar-full-badge">' + data.resolution + ' Quality</div>');
+                }
+                // ИСПРАВЛЕНО: Добавлены DV и Atmos в детальный просмотр
+                if (data.hdr) {
+                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--hdr">HDR</div>');
+                }
+                if (data.dolbyVision) {
+                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--dv">Dolby Vision</div>');
+                }
+                if (data.atmos) {
+                    fullContainer.append('<div class="likhtar-full-badge likhtar-full-badge--atmos">Dolby Atmos</div>');
+                }
+            });
+        }
+    }
+
+    /**
+     * НАБЛЮДАТЕЛЬ ЗА ИЗМЕНЕНИЯМИ DOM
+     * Позволяет обрабатывать карточки, которые подгружаются динамически при скролле.
+     */
+    function startDomObserver() {
+        var timer = null;
+        var pendingNodes = [];
+
+        var observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (m) {
+                for (var i = 0; i < m.addedNodes.length; i++) {
+                    var node = m.addedNodes[i];
+                    if (node.nodeType === 1) pendingNodes.push(node);
+                }
+            });
+
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(function () {
+                scanAndProcessCards(pendingNodes);
+                pendingNodes = [];
+                timer = null;
+            }, 200);
+        });
+
+        var appRoot = document.getElementById('app') || document.body;
+        observer.observe(appRoot, { 
+            childList: true, 
+            subtree: true 
+        });
+
+        // Первый запуск
+        scanAndProcessCards();
+    }
+
+    /**
+     * СЛУШАТЕЛЬ СОБЫТИЙ LAMPA
+     */
+    function attachLampaListeners() {
+        Lampa.Listener.follow('full', function (event) {
+            if (event.type === 'complite') {
+                injectFullViewMarks(event.data.movie, event.object.activity.render());
+            }
+        });
+    }
+
+    /**
+     * ОЧИСТКА И ПЕРЕЗАГРУЗКА
+     */
+    function resetMarks() {
+        $('.likhtar-marks-wrapper, .likhtar-full-container').remove();
+        $('.card').removeClass('likhtar-processed likhtar-hide-native-rating');
+        scanAndProcessCards();
+    }
+
+    /**
+     * РЕГИСТРАЦИЯ В МЕНЮ НАСТРОЕК
+     */
+    function registerModuleSettings() {
+        if (window.marks_settings_init) return;
+        window.marks_settings_init = true;
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { type: 'title' },
+            field: { name: 'Мітки Контенту (Marks)' }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { name: 'marks_enabled', type: 'trigger', default: true },
+            field: { name: 'Відображати мітки' },
+            onChange: resetMarks
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { name: 'marks_ua', type: 'trigger', default: true },
+            field: { name: 'Пріоритет UA' },
+            onChange: resetMarks
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { name: 'marks_4k', type: 'trigger', default: true },
+            field: { name: 'Мітка 4K' },
+            onChange: resetMarks
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { name: 'marks_fhd', type: 'trigger', default: true },
+            field: { name: 'Мітки 1080p/720p' },
+            onChange: resetMarks
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { name: 'marks_hdr', type: 'trigger', default: true },
+            field: { name: 'Візуальні ефекти (HDR/DV)' },
+            onChange: resetMarks
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'interface',
+            param: { name: 'marks_rating', type: 'trigger', default: true },
+            field: { name: 'Власний рейтинг' },
+            onChange: resetMarks
+        });
+    }
+
+    /**
+     * ИНЪЕКЦИЯ СТИЛЕЙ (CSS)
+     */
+    function injectDetailedStyles() {
+        if (document.getElementById('likhtar-marks-css')) return;
+
+        var styleSheet = document.createElement('style');
+        styleSheet.id = 'likhtar-marks-css';
+        styleSheet.innerHTML = `
+            /* Контейнер меток на карточке */
+            .likhtar-marks-wrapper {
+                position: absolute;
+                top: 3.2em; /* ИСПРАВЛЕНО: Опущено вниз для предотвращения наложения */
+                left: 0.5em;
+                display: flex;
+                flex-direction: row; /* ИСПРАВЛЕНО: Вывод в ряд для одновременного показа */
+                flex-wrap: wrap;    /* ИСПРАВЛЕНО: Перенос, если иконок много */
+                align-items: flex-start;
+                gap: 0.25em;
+                z-index: 15;
+                pointer-events: none;
+                max-width: 90%;
+            }
+
+            /* Базовый стиль метки */
+            .likhtar-badge {
+                padding: 0.2em 0.5em;
+                font-size: 0.75em;
+                font-weight: 900;
+                border-radius: 0.3em;
+                color: #ffffff;
+                text-transform: uppercase;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+                border: 1px solid rgba(255,255,255,0.15);
+                white-space: nowrap;
+                line-height: 1.2;
+            }
+
+            /* Цветовые схемы для меток */
+            .likhtar-badge--ua {
+                background: linear-gradient(135deg, #0056b3, #00a2ff);
+                border-color: rgba(0,162,255,0.3);
+            }
+            .likhtar-badge--ru {
+                background: #333333;
+                background: linear-gradient(135deg, #222, #444);
+            }
+            .likhtar-badge--en {
+                background: linear-gradient(135deg, #1b3a4b, #212529);
+            }
+            .likhtar-badge--4k {
+                background: linear-gradient(135deg, #d35400, #f39c12);
+                color: #fff;
+            }
+            .likhtar-badge--fhd {
+                background: linear-gradient(135deg, #6a11cb, #2575fc);
+            }
+            .likhtar-badge--hd {
+                background: linear-gradient(135deg, #27ae60, #2ecc71);
+            }
+            .likhtar-badge--hdr {
+                background: linear-gradient(135deg, #8e44ad, #9b59b6);
+            }
+            .likhtar-badge--dv {
+                background: #1a1a1a;
+                color: #d4af37;
+                border-color: #d4af37;
+            }
+            .likhtar-badge--atmos {
+                background: #000;
+                color: #00d2ff;
+                border-color: #00d2ff;
+            }
+            .likhtar-badge--rating {
+                background: rgba(0, 0, 0, 0.85);
+                color: #ffcc00;
+                border-color: rgba(255, 204, 0, 0.4);
+            }
+
+            /* Стили для полной карточки */
+            .likhtar-full-container {
+                position: absolute;
+                top: 1.5em;
+                right: 1.5em;
+                display: flex;
+                flex-direction: column;
+                gap: 0.6em;
+                z-index: 100;
+            }
+            .likhtar-full-badge {
+                background: rgba(0,0,0,0.85);
+                padding: 0.5em 1em;
+                border-radius: 0.5em;
+                font-weight: bold;
+                font-size: 0.9em;
+                color: #fff;
+                border: 1px solid rgba(255,255,255,0.2);
+                text-align: center;
+                backdrop-filter: blur(4px);
+            }
+            .likhtar-full-badge--ua { border-color: #00a2ff; color: #00a2ff; }
+            .likhtar-full-badge--ru { border-color: #777; color: #ccc; }
+            .likhtar-full-badge--hdr { border-color: #9b59b6; color: #d782ff; }
+            .likhtar-full-badge--dv { border-color: #d4af37; color: #d4af37; }
+            .likhtar-full-badge--atmos { border-color: #00d2ff; color: #00d2ff; }
+
+            /* Скрытие стандартного рейтинга */
+            .card.likhtar-hide-native-rating .card__vote {
+                display: none !important;
+            }
+        `;
+        document.head.appendChild(styleSheet);
+    }
+
+    /**
+     * ТОЧКА ВХОДА
+     */
+    function initializePlugin() {
+        console.log('Marks: Initializing extended module...');
+        
+        // 1. Настройки и стили
+        registerModuleSettings();
+        injectDetailedStyles();
+
+        // 2. Активация наблюдателей
+        startDomObserver();
+        attachLampaListeners();
+
+        // 3. Финальная перерисовка через небольшую паузу
+        setTimeout(function() {
+            resetMarks();
+        }, 500);
+    }
+
+    // Ожидание готовности Lampa
+    if (window.appready) {
+        initializePlugin();
     } else {
-        setTimeout(runInit, 1200);
+        Lampa.Listener.follow('app', function (e) {
+            if (e.type === 'ready') {
+                initializePlugin();
+            }
+        });
     }
 })();

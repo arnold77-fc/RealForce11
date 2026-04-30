@@ -1,6 +1,6 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
 //SVG Quality Badges (Full card & Posters) + settings + cache + modern gradient design
-//Працює при увімкненому парсері (знаходить максимальну якість та озвучки)
+//Працює при увімкненому парсері
 
 (function () {
   'use strict';
@@ -23,11 +23,11 @@
     '4.0': pluginPath + '4.0.svg',
     '2.0': pluginPath + '2.0.svg',
     'UKR': pluginPath + 'UA.png',
-    'RU': pluginPath + 'RU.png' // Індикатор мови
+    'RU': pluginPath + 'RU.png' // Індикатор російської озвучки
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v11';
-  var CACHE_KEY = 'svgq_parser_cache_v6';
+  var SETTINGS_KEY = 'svgq_user_settings_v12';
+  var CACHE_KEY = 'svgq_parser_cache_v7';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -316,21 +316,16 @@
     if (!best || !best.hasTrack) return '';
     var badges = [];
 
-    // Тільки максимальна якість
-    if (best.resolution) {
-      badges.push(createBadgeImg(best.resolution, badges.length));
-    }
-
+    // Відображаємо всі знайдені характеристики
+    if (best.resolution) badges.push(createBadgeImg(best.resolution, badges.length));
     if (best.hdr) badges.push(createBadgeImg('HDR', badges.length));
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
 
-    if (best.hasRus) {
-      badges.push(createBadgeImg('RU', badges.length));
-    }
-    if (best.hasUkr) {
-      badges.push(createBadgeImg('UKR', badges.length));
-    }
+    // Відображаємо обидва прапорці (і RU, і UKR, якщо вони знайдені)
+    if (best.hasRus) badges.push(createBadgeImg('RU', badges.length));
+    if (best.hasUkr) badges.push(createBadgeImg('UKR', badges.length));
+
     return badges.join('');
   }
 
@@ -360,10 +355,15 @@
     if (cached) {
       if (cached !== 'EMPTY') {
         task.elements.forEach(function(el) {
-          el.find('.quality-badges-card').remove();
-          el.append('<div class="quality-badges-card">' + cached + '</div>');
+          $(el).find('.quality-badges-card').remove();
+          $(el).append('<div class="quality-badges-card">' + cached + '</div>');
         });
       }
+      processQueue();
+      return;
+    }
+
+    if (Lampa.Storage && Lampa.Storage.field && !Lampa.Storage.field('parser_use')) {
       processQueue();
       return;
     }
@@ -379,8 +379,8 @@
 
       if (html !== 'EMPTY') {
         task.elements.forEach(function(el) {
-          el.find('.quality-badges-card').remove();
-          el.append('<div class="quality-badges-card">' + html + '</div>');
+          $(el).find('.quality-badges-card').remove();
+          $(el).append('<div class="quality-badges-card">' + html + '</div>');
         });
       }
       setTimeout(processQueue, 400); 
@@ -389,13 +389,14 @@
 
   function applyBadgesToCard(movie, renderRoot) {
     if (!Lampa.Parser || typeof Lampa.Parser.get !== 'function') return;
+    if (Lampa.Storage && Lampa.Storage.field && !Lampa.Storage.field('parser_use')) return;
     if (!movie || (!movie.title && !movie.name)) return;
     
     var cached = cacheGet(movie);
     if (cached) {
       if (cached !== 'EMPTY') {
-        renderRoot.find('.quality-badges-card').remove();
-        renderRoot.append('<div class="quality-badges-card">' + cached + '</div>');
+        $(renderRoot).find('.quality-badges-card').remove();
+        $(renderRoot).append('<div class="quality-badges-card">' + cached + '</div>');
       }
       return;
     }
@@ -456,6 +457,7 @@
   function applyBadgesToFullCard(movie, renderRoot) {
     if (!movie || !renderRoot) return;
     if (!Lampa.Parser || typeof Lampa.Parser.get !== 'function') return;
+    if (Lampa.Storage && Lampa.Storage.field && !Lampa.Storage.field('parser_use')) return;
 
     var container = ensureContainer(renderRoot);
     if (!container) return;
@@ -486,6 +488,10 @@
   var style = '<style id="svgq_styles">\
     .full-start__status.lqe-quality{ display:none !important; }\
     :root{ --svgq-badge-size: 2.0em; }\
+    \
+    .card, .full-start-new, .full-start {\
+      position: relative;\
+    }\
     \
     /* Containers */\
     .quality-badges-container, .quality-badges-under-rate, .quality-badges-after-details {\
@@ -661,6 +667,6 @@
     startSettings();
   }
 
-  console.log('[SVGQ] loaded with Card & Full Card support (max resolution & languages)');
+  console.log('[SVGQ] loaded with Card & Full Card support (all resolutions & languages)');
 
 })();

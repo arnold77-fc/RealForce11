@@ -1,6 +1,7 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
-//SVG Quality Badges (Full card & Posters) + settings + cache + modern gradient design
+//SVG Quality Badges (Full card & Posters) + settings + cache
 //Працює при увімкненому парсері
+//Логіка UA — як у UA-Finder+Mod: відрізаємо SUB та рахуємо ukr-доріжки
 
 (function () {
   'use strict';
@@ -22,19 +23,18 @@
     '5.1': pluginPath + '5.1.svg',
     '4.0': pluginPath + '4.0.svg',
     '2.0': pluginPath + '2.0.svg',
-    'UKR': pluginPath + 'UA.png',
-    'RU': pluginPath + 'RU.png' // Індикатор російської озвучки
+    'UKR': pluginPath + 'UA.png'
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v13';
-  var CACHE_KEY = 'svgq_parser_cache_v8';
+  var SETTINGS_KEY = 'svgq_user_settings_v7';
+  var CACHE_KEY = 'svgq_parser_cache_v3';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
     placement: 'rate',
     force_new_line: false,
     badge_size: 2.0,
-    show_on_cards: true // Показувати на постерах
+    show_on_cards: true
   };
 
   var memCache = null;
@@ -91,6 +91,21 @@
       if (Lampa && typeof Lampa.Noty === 'function') { Lampa.Noty(msg); return; }
       if (Lampa && Lampa.Noty && Lampa.Noty.show) { Lampa.Noty.show(msg); return; }
     } catch (e) {}
+
+    var id = 'svgq_toast';
+    var el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = id;
+      el.style.cssText =
+        'position:fixed;left:50%;transform:translateX(-50%);bottom:2rem;' +
+        'padding:.6rem 1rem;background:rgba(0,0,0,.85);color:#fff;border-radius:.5rem;' +
+        'z-index:9999;font-size:14px;transition:opacity .2s;opacity:0';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    setTimeout(function () { el.style.opacity = '0'; }, 1200);
   }
 
   // =====================================================================
@@ -136,7 +151,27 @@
   }
 
   // =====================================================================
-  // PARSING LOGIC
+  // UA-Finder-like UA track detection (ignore subtitles)
+  // =====================================================================
+
+  function countUkrainianTracks(title) {
+    if (!title) return 0;
+    var cleanTitle = String(title).toLowerCase();
+
+    var subsIndex = cleanTitle.indexOf('sub');
+    if (subsIndex !== -1) cleanTitle = cleanTitle.substring(0, subsIndex);
+
+    var multi = cleanTitle.match(/(\d+)x\s*ukr/);
+    if (multi && multi[1]) return parseInt(multi[1], 10) || 0;
+
+    var singles = cleanTitle.match(/\bukr\b/g);
+    if (singles) return singles.length;
+
+    return 0;
+  }
+
+  // =====================================================================
+  // HELPERS & GETBEST
   // =====================================================================
 
   function getCardType(cardData) {
@@ -183,17 +218,18 @@
     var cardType = getCardType(movie);
     var cardYear = getMovieYear(movie);
 
-    var best = { 
-      resolution: null, 
-      hdr: false, 
-      dolbyVision: false, 
+    var best = {
+      resolution: null,
+      hdr: false,
+      dolbyVision: false,
       audio: null,
-      hasUkr: false,
-      hasRus: false
+      ua: false,
+      ua_tracks: 0
     };
 
     var resOrder = ['HD', 'FULL HD', '2K', '4K'];
     var audioOrder = ['2.0', '4.0', '5.1', '7.1'];
+
     var limit = Math.min(results.length, 50);
 
     for (var i = 0; i < limit; i++) {
@@ -202,13 +238,20 @@
       if (!title) continue;
       var tl = title.toLowerCase();
 
-      if (cardType === 'tv' && !isSeriesTorrentTitle(tl)) continue;
-      if (cardType === 'movie' && isSeriesTorrentTitle(tl)) continue;
+      var seriesLike = isSeriesTorrentTitle(tl);
+      if (cardType === 'tv' && !seriesLike) continue;
+      if (cardType === 'movie' && seriesLike) continue;
 
       if (cardYear > 1900) {
         var y = extractYearFromTitle(title) || parseInt(item.relased || item.released || 0, 10) || 0;
         if (y > 1900 && y !== cardYear) continue;
       }
+
+      var uaCount = countUkrainianTracks(title);
+      if (!uaCount || uaCount <= 0) continue;
+
+      best.ua = true;
+      if (uaCount > best.ua_tracks) best.ua_tracks = uaCount;
 
       var foundRes = null;
       if (tl.indexOf('4k') >= 0 || tl.indexOf('2160') >= 0 || tl.indexOf('uhd') >= 0) foundRes = '4K';
@@ -216,17 +259,12 @@
       else if (tl.indexOf('1080') >= 0 || tl.indexOf('fhd') >= 0 || tl.indexOf('full hd') >= 0) foundRes = 'FULL HD';
       else if (tl.indexOf('720') >= 0 || /\bhd\b/.test(tl)) foundRes = 'HD';
 
-      if (foundRes) {
-        if (!best.resolution || resOrder.indexOf(foundRes) > resOrder.indexOf(best.resolution)) {
-          best.resolution = foundRes;
-        }
+      if (foundRes && (!best.resolution || resOrder.indexOf(foundRes) > resOrder.indexOf(best.resolution))) {
+        best.resolution = foundRes;
       }
 
       if (tl.indexOf('dolby vision') >= 0 || tl.indexOf('dovi') >= 0) best.dolbyVision = true;
       if (tl.indexOf('hdr') >= 0) best.hdr = true;
-
-      if (tl.indexOf('ukr') >= 0) best.hasUkr = true;
-      if (tl.indexOf('rus') >= 0 || tl.indexOf('рус') >= 0) best.hasRus = true;
 
       if (item.ffprobe && Array.isArray(item.ffprobe)) {
         for (var k = 0; k < item.ffprobe.length; k++) {
@@ -243,9 +281,7 @@
             else if (h >= 1080 || w >= 1920) res = 'FULL HD';
             else if (h >= 720 || w >= 1280) res = 'HD';
 
-            if (res) {
-              if (!best.resolution || resOrder.indexOf(res) > resOrder.indexOf(best.resolution)) best.resolution = res;
-            }
+            if (res && (!best.resolution || resOrder.indexOf(res) > resOrder.indexOf(best.resolution))) best.resolution = res;
 
             try {
               if (stream.side_data_list && JSON.stringify(stream.side_data_list).indexOf('Vision') >= 0) best.dolbyVision = true;
@@ -267,8 +303,7 @@
       }
     }
     if (best.dolbyVision) best.hdr = true;
-
-    return (best.resolution || best.hdr || best.audio || best.hasUkr || best.hasRus) ? best : null;
+    return best.ua ? best : null;
   }
 
   // =====================================================================
@@ -287,19 +322,13 @@
   }
 
   function buildBadgesHtml(best) {
-    if (!best) return '';
+    if (!best || !best.ua) return '';
     var badges = [];
-
-    // Відображаємо всі знайдені характеристики
     if (best.resolution) badges.push(createBadgeImg(best.resolution, badges.length));
     if (best.hdr) badges.push(createBadgeImg('HDR', badges.length));
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
-
-    // Відображення прапорців (і RU, і UKR, якщо вони знайдені)
-    if (best.hasRus) badges.push(createBadgeImg('RU', badges.length));
-    if (best.hasUkr) badges.push(createBadgeImg('UKR', badges.length));
-
+    badges.push(createBadgeImg('UKR', badges.length));
     return badges.join('');
   }
 
@@ -361,7 +390,7 @@
           target.append('<div class="quality-badges-card">' + html + '</div>');
         });
       }
-      setTimeout(processQueue, 400); 
+      setTimeout(processQueue, 400);
     });
   }
 
@@ -384,21 +413,9 @@
   }
 
   // =====================================================================
-  // PATCH CARD RENDER
+  // FULL CARD HOOK
   // =====================================================================
-  function patchLampaCard() {
-    Lampa.Listener.follow('card', function (e) {
-      if ((e.type === 'build' || e.type === 'render') && st.show_on_cards) {
-        try {
-          var movie = e.data;
-          var html = e.object.html;
-          applyBadgesToCard(movie, html);
-        } catch (err) {}
-      }
-    });
-  }
 
-  // Відображення в Full Card
   function ensureContainer(renderRoot) {
     $('.quality-badges-container, .quality-badges-under-rate, .quality-badges-after-details', renderRoot).remove();
     renderRoot
@@ -473,7 +490,6 @@
       position: relative !important;\
     }\
     \
-    /* Containers */\
     .quality-badges-container, .quality-badges-under-rate, .quality-badges-after-details {\
       display:inline-flex; flex-wrap:wrap; align-items:center;\
       column-gap:0.4em; row-gap:0.3em; pointer-events:none; max-width:100%;\
@@ -503,7 +519,6 @@
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));\
     }\
     \
-    /* Оновлений яскравий дизайн */\
     .quality-badges-card {\
       position: absolute;\
       top: 12px; left: 6px;\
@@ -514,13 +529,13 @@
       width: calc(100% - 12px);\
     }\
     .quality-badges-card .quality-badge {\
-      height: calc(var(--svgq-badge-size) * 0.62);\
+      height: calc(var(--svgq-badge-size) * 0.55);\
       padding: 0.15em 0.35em;\
-      background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);\
+      background: rgba(0, 0, 0, 0.7);\
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);\
-      border: 1px solid rgba(255, 255, 255, 0.3);\
-      border-radius: 0.35em;\
-      box-shadow: 0 4px 12px rgba(0, 114, 255, 0.5);\
+      border: 1px solid rgba(255, 255, 255, 0.2);\
+      border-radius: 0.3em;\
+      box-shadow: 0 2px 8px rgba(0,0,0,0.8);\
       transform: scale(0.9);\
       animation: qb_in_card 0.4s ease forwards;\
     }\
@@ -528,7 +543,7 @@
     \
     @media (max-width: 768px){\
       .quality-badges-container { column-gap: 0.3em; row-gap: 0.2em; margin-left: 0.38em; }\
-      .quality-badges-card .quality-badge { height: calc(var(--svgq-badge-size) * 0.48); padding: 0.1em 0.2em; }\
+      .quality-badges-card .quality-badge { height: calc(var(--svgq-badge-size) * 0.45); padding: 0.1em 0.2em; }\
     }\
   </style>';
 
@@ -633,7 +648,16 @@
     } catch (err) { console.error('[SVGQ] error full:', err); }
   });
 
-  patchLampaCard();
+  // Підключаємо до карток на головному екрані
+  Lampa.Listener.follow('card', function (e) {
+    if ((e.type === 'build' || e.type === 'render') && st.show_on_cards) {
+      try {
+        var movie = e.data;
+        var html = e.object.html;
+        applyBadgesToCard(movie, html);
+      } catch (err) {}
+    }
+  });
 
   Lampa.Listener.follow('app', function (ev) {
     if (ev.type === 'ready') {
@@ -647,6 +671,6 @@
     startSettings();
   }
 
-  console.log('[SVGQ] loaded with Card & Full Card support (all resolutions & languages)');
+  console.log('[SVGQ] loaded with Card & Full Card support');
 
 })();

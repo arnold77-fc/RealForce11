@@ -23,7 +23,6 @@
             resolution: 'SD',
             ukr: false,
             eng: false,
-            rus: false,
             hdr: false,
             dolbyVision: false,
             atmos: false
@@ -42,11 +41,25 @@
             xhr.open('GET', reqUrl, true);
             if (typeof setHeaders === 'function') setHeaders(xhr);
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) callback(null, xhr.responseText);
-                else onFail();
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    var responseText = xhr.responseText;
+
+                    if (reqUrl.indexOf('api.allorigins.win') >= 0) {
+                        try {
+                            var parsed = JSON.parse(responseText);
+                            if (parsed && parsed.contents !== undefined) {
+                                responseText = parsed.contents;
+                            }
+                        } catch (e) { }
+                    }
+
+                    callback(null, responseText);
+                } else {
+                    onFail();
+                }
             };
             xhr.onerror = onFail;
-            xhr.timeout = 10000;
+            xhr.timeout = 5000;
             xhr.ontimeout = onFail;
             xhr.send();
         }
@@ -79,7 +92,7 @@
 
         try {
             var raw = Lampa.Storage.get(cacheKey, '');
-            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 10 * 60 * 1000)) {
+            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 48 * 60 * 60 * 1000)) {
                 jacredCache[cacheKey] = raw;
                 return callback(raw);
             }
@@ -87,23 +100,22 @@
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
-        var year = String(varRaw).substr(0, 4);
-        if (!title || !year) return callback(emptyMarksData());
+        var year = String(dateRaw).substr(0, 4);
+        if (!title) return callback(emptyMarksData());
 
-        var releaseDate = new Date(varRaw);
+        var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
-        
+
         fetchWithProxy(apiUrl, function (err, body) {
             if (err || !body) return callback(emptyMarksData());
 
             try {
                 var parsed = JSON.parse(body);
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
-                
-                var best = { resolution: 'SD', ukr: false, eng: false, rus: false, hdr: false, dolbyVision: false, atmos: false };
-                
+
+                var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 var bestRes = 'SD';
                 var lock4k = false;
 
@@ -129,13 +141,12 @@
                     var t = String(item.title || '').toLowerCase();
                     if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
-                    if (t.indexOf('rus') >= 0 || t.indexOf('ru') >= 0 || t.indexOf('russian') >= 0 || t.indexOf('dub') >= 0) best.rus = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
                     if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
-                best.empty = (best.resolution === 'SD' && !best.ukr && !best.eng && !best.rus && !best.hdr);
+                best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
                 Lampa.Storage.set(cacheKey, best);
@@ -175,7 +186,7 @@
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
         fetchWithProxy(searchUrl, function (err, html) {
             if (err || !html) return callback(false);
-            var hasResults = html.indexOf('знайдено') >= 0 && html.indexOf('0 відповідей') < 0;
+            var hasResults = html.indexOf('Р·РЅР°Р№РґРµРЅРѕ') >= 0 && html.indexOf('0 РІС–РґРїРѕРІС–РґРµ') < 0;
             callback(hasResults);
         });
     }
@@ -258,7 +269,6 @@
         if (!isSettingEnabled('marks_enabled', false)) return;
 
         if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
-        if (data.rus && isSettingEnabled('marks_rus', false)) container.append(createCardBadge('rus', 'RUS'));
         if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
 
         if (data.resolution && data.resolution !== 'SD') {
@@ -353,9 +363,6 @@
 
         if (data.ukr && isSettingEnabled('marks_ua', false)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA+</div>');
-        }
-        if (data.rus && isSettingEnabled('marks_rus', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--rus">RUS</div>');
         }
 
         if (data.resolution && data.resolution !== 'SD') {
@@ -507,7 +514,6 @@
             }
             Lampa.Storage.set('marks_ua', true);
             Lampa.Storage.set('marks_en', true);
-            Lampa.Storage.set('marks_rus', true);
             Lampa.Storage.set('marks_4k', true);
             Lampa.Storage.set('marks_fhd', true);
             Lampa.Storage.set('marks_hdr', true);
@@ -535,49 +541,42 @@
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_ua', type: 'trigger', default: true },
-            field: { name: 'Показати мітку UA' },
-            onChange: refreshBadgesNow
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: targetComponent,
-            param: { name: 'marks_rus', type: 'trigger', default: true },
-            field: { name: 'Показати мітку RUS' },
+            field: { name: 'Показувати мітку UA' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_en', type: 'trigger', default: true },
-            field: { name: 'Показати мітку EN' },
+            field: { name: 'Показувати мітку EN' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_4k', type: 'trigger', default: true },
-            field: { name: 'Показати мітку 4K' },
+            field: { name: 'Показувати мітку 4K' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_fhd', type: 'trigger', default: true },
-            field: { name: 'Показати мітки 1080p / 720p' },
+            field: { name: 'Показувати мітки 1080p / 720p' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: 'Показати мітку HDR / Dolby Vision / Atmos' },
+            field: { name: 'Показувати мітку HDR / Dolby Vision / Atmos' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_rating', type: 'trigger', default: true },
-            field: { name: 'Показати мітку рейтингу' },
+            field: { name: 'Показувати мітку рейтингу' },
             onChange: refreshBadgesNow
         });
     }
@@ -620,7 +619,6 @@
                 white-space: nowrap;\
             }\
             .likhtar-marks-badge--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-badge--rus  { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
             .likhtar-marks-badge--en  { background: linear-gradient(135deg, #37474f, #78909c); border-color: rgba(120,144,156,0.4); }\
             .likhtar-marks-badge--4k  { background: linear-gradient(135deg, #e65100, #ff9800); border-color: rgba(255,152,0,0.4); }\
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
@@ -661,7 +659,6 @@
                 box-shadow: 0 2px 6px rgba(0,0,0,0.4);\
             }\
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-full-badge--rus { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\

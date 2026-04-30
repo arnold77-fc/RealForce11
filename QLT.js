@@ -1,6 +1,6 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
 //SVG Quality Badges (Full card & Posters) + settings + cache + modern gradient design
-//Працює при увімкненому парсері (знаходить усі якості та озвучки)
+//Працює при увімкненому парсері (знаходить максимальну якість та озвучки)
 
 (function () {
   'use strict';
@@ -23,7 +23,7 @@
     '4.0': pluginPath + '4.0.svg',
     '2.0': pluginPath + '2.0.svg',
     'UKR': pluginPath + 'UA.png',
-    'RU': pluginPath + 'RU.png' // Додано індикатор мови
+    'RU': pluginPath + 'RU.png' // Індикатор мови
   };
 
   var SETTINGS_KEY = 'svgq_user_settings_v11';
@@ -204,7 +204,6 @@
 
     var best = { 
       resolution: null, 
-      resolutions: [], 
       hdr: false, 
       dolbyVision: false, 
       audio: null, 
@@ -245,9 +244,6 @@
       else if (tl.indexOf('720') >= 0 || /\bhd\b/.test(tl)) foundRes = 'HD';
 
       if (foundRes) {
-        if (best.resolutions.indexOf(foundRes) === -1) {
-          best.resolutions.push(foundRes);
-        }
         if (!best.resolution || resOrder.indexOf(foundRes) > resOrder.indexOf(best.resolution)) {
           best.resolution = foundRes;
         }
@@ -275,9 +271,6 @@
             else if (h >= 720 || w >= 1280) res = 'HD';
 
             if (res) {
-              if (best.resolutions.indexOf(res) === -1) {
-                best.resolutions.push(res);
-              }
               if (!best.resolution || resOrder.indexOf(res) > resOrder.indexOf(best.resolution)) best.resolution = res;
             }
 
@@ -323,11 +316,8 @@
     if (!best || !best.hasTrack) return '';
     var badges = [];
 
-    if (best.resolutions && best.resolutions.length > 0) {
-      best.resolutions.forEach(function (res) {
-        badges.push(createBadgeImg(res, badges.length));
-      });
-    } else if (best.resolution) {
+    // Тільки максимальна якість
+    if (best.resolution) {
       badges.push(createBadgeImg(best.resolution, badges.length));
     }
 
@@ -671,6 +661,6 @@
     startSettings();
   }
 
-  console.log('[SVGQ] loaded with Card & Full Card support (all resolutions & languages)');
+  console.log('[SVGQ] loaded with Card & Full Card support (max resolution & languages)');
 
 })();

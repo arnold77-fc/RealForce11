@@ -1,8 +1,7 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
-//SVG Quality Badges (Full card & Posters) + settings + cache + queue
+//SVG Quality Badges (Full card & Posters) + settings + cache + modern gradient design
 //Працює при увімкненому парсері
-//Логіка UA — як у UA-Finder+Mod: відрізаємо SUB та рахуємо ukr-доріжки
-//Показуємо ЯКІСТЬ/АУДІО тільки для релізів з UA-доріжкою, іконка UA — в кінці
+//Шукає як українську, так і російську озвучку
 
 (function () {
   'use strict';
@@ -24,11 +23,12 @@
     '5.1': pluginPath + '5.1.svg',
     '4.0': pluginPath + '4.0.svg',
     '2.0': pluginPath + '2.0.svg',
-    'UKR': pluginPath + 'UA.png'
+    'UKR': pluginPath + 'UA.png',
+    'RU': pluginPath + 'RU.png' // Додано індикатор мови
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v7';
-  var CACHE_KEY = 'svgq_parser_cache_v2';
+  var SETTINGS_KEY = 'svgq_user_settings_v9';
+  var CACHE_KEY = 'svgq_parser_cache_v4';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -140,16 +140,17 @@
   // PARSING LOGIC
   // =====================================================================
 
-  function countUkrainianTracks(title) {
+  // Шукає як українську, так і російську доріжку
+  function countSupportedTracks(title) {
     if (!title) return 0;
     var cleanTitle = String(title).toLowerCase();
     var subsIndex = cleanTitle.indexOf('sub');
     if (subsIndex !== -1) cleanTitle = cleanTitle.substring(0, subsIndex);
 
-    var multi = cleanTitle.match(/(\d+)x\s*ukr/);
+    var multi = cleanTitle.match(/(\d+)x\s*(ukr|rus)/);
     if (multi && multi[1]) return parseInt(multi[1], 10) || 0;
 
-    var singles = cleanTitle.match(/\bukr\b/g);
+    var singles = cleanTitle.match(/\b(ukr|rus)\b/g);
     if (singles) return singles.length;
     return 0;
   }
@@ -198,7 +199,7 @@
     var cardType = getCardType(movie);
     var cardYear = getMovieYear(movie);
 
-    var best = { resolution: null, hdr: false, dolbyVision: false, audio: null, ua: false, ua_tracks: 0 };
+    var best = { resolution: null, hdr: false, dolbyVision: false, audio: null, hasTrack: false, trackTracks: 0 };
     var resOrder = ['HD', 'FULL HD', '2K', '4K'];
     var audioOrder = ['2.0', '4.0', '5.1', '7.1'];
     var limit = Math.min(results.length, 50);
@@ -217,11 +218,11 @@
         if (y > 1900 && y !== cardYear) continue;
       }
 
-      var uaCount = countUkrainianTracks(title);
-      if (!uaCount || uaCount <= 0) continue;
+      var trackCount = countSupportedTracks(title);
+      if (!trackCount || trackCount <= 0) continue;
 
-      best.ua = true;
-      if (uaCount > best.ua_tracks) best.ua_tracks = uaCount;
+      best.hasTrack = true;
+      if (trackCount > best.trackTracks) best.trackTracks = trackCount;
 
       var foundRes = null;
       if (tl.indexOf('4k') >= 0 || tl.indexOf('2160') >= 0 || tl.indexOf('uhd') >= 0) foundRes = '4K';
@@ -273,7 +274,7 @@
       }
     }
     if (best.dolbyVision) best.hdr = true;
-    return best.ua ? best : null;
+    return best.hasTrack ? best : null;
   }
 
   // =====================================================================
@@ -291,14 +292,20 @@
     );
   }
 
-  function buildBadgesHtml(best) {
-    if (!best || !best.ua) return '';
+  function buildBadgesHtml(best, titleText) {
+    if (!best || !best.hasTrack) return '';
     var badges = [];
     if (best.resolution) badges.push(createBadgeImg(best.resolution, badges.length));
     if (best.hdr) badges.push(createBadgeImg('HDR', badges.length));
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
-    badges.push(createBadgeImg('UKR', badges.length));
+    
+    // Визначення мови (укр чи рос)
+    if (titleText && titleText.toLowerCase().indexOf('rus') >= 0) {
+      badges.push(createBadgeImg('RU', badges.length));
+    } else {
+      badges.push(createBadgeImg('UKR', badges.length));
+    }
     return badges.join('');
   }
 
@@ -340,7 +347,7 @@
       var html = 'EMPTY';
       if (response && response.Results) {
         var best = getBest(response.Results, task.movie);
-        var bHtml = buildBadgesHtml(best);
+        var bHtml = buildBadgesHtml(best, task.movie.title || task.movie.name);
         if (bHtml) html = bHtml;
       }
       cacheSet(task.movie, html);
@@ -370,7 +377,6 @@
     enqueueParse(movie, renderRoot);
   }
 
-  // Надійний патч карток
   function patchLampaCard() {
     if (window.svgq_card_patched) return;
     if (window.Lampa && Lampa.Card && Lampa.Card.prototype && Lampa.Card.prototype.build) {
@@ -379,7 +385,8 @@
       Lampa.Card.prototype.build = function () {
         origBuild.apply(this, arguments);
         try {
-          var target = this.html.find('.card__view').length ? this.html.find('.card__view') : this.html;
+          // Прив'язка до основного елемента постера, а не .card__view, який Lampa періодично оновлює
+          var target = this.html;
           var movie = this.data; 
           if (movie && st.show_on_cards) {
             applyBadgesToCard(movie, target);
@@ -445,7 +452,7 @@
         return;
       }
       var best = getBest(response.Results, movie);
-      var html = buildBadgesHtml(best);
+      var html = buildBadgesHtml(best, movie.title || movie.name);
       cacheSet(movie, html || 'EMPTY');
       if (html) container.html(html);
     });
@@ -471,49 +478,50 @@
     .quality-badges-after-details { margin:0.03em 0 1.9em 0; }\
     .quality-badges-under-rate + .full-start-new__details, .quality-badges-under-rate + .full-start__details { margin-top:0 !important; }\
     \
-    .quality-badge{\
-      height:var(--svgq-badge-size);\
-      display:inline-flex; align-items:center; justify-content:center;\
-      padding:0;\
-      background:none;\
-      box-shadow:none;\
-      border:none;\
-      border-radius:0;\
-      box-sizing:border-box;\
-      opacity:0; transform:translateY(8px);\
-      animation:qb_in 0.35s ease forwards;\
+    .quality-badge {\
+      height: var(--svgq-badge-size);\
+      display: inline-flex; align-items: center; justify-content: center;\
+      padding: 0;\
+      background: none;\
+      box-shadow: none;\
+      border: none;\
+      border-radius: 0;\
+      box-sizing: border-box;\
+      opacity: 0; transform: translateY(8px);\
+      animation: qb_in 0.35s ease forwards;\
     }\
-    @keyframes qb_in{ to{ opacity:1; transform:translateY(0);} }\
-    .quality-badge img{\
-      height:100%; width:auto; display:block;\
-      filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6));\
+    @keyframes qb_in { to{ opacity: 1; transform: translateY(0); } }\
+    .quality-badge img {\
+      height: 100%; width: auto; display: block;\
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));\
     }\
     \
-    /* Кольорові бейджі зліва на постерах (під надписом типу) */\
+    /* Оновлений дизайн: яскравий градієнт з неоновим ефектом */\
     .quality-badges-card {\
       position: absolute;\
       top: 32px; left: 6px;\
       display: flex; flex-direction: row; flex-wrap: wrap;\
-      justify-content: flex-start; gap: 4px;\
-      z-index: 10; pointer-events: none;\
+      justify-content: flex-start; gap: 5px;\
+      z-index: 100;\
+      pointer-events: none;\
       width: calc(100% - 12px);\
     }\
     .quality-badges-card .quality-badge {\
-      height: calc(var(--svgq-badge-size) * 0.65);\
+      height: calc(var(--svgq-badge-size) * 0.62);\
       padding: 0.15em 0.35em;\
-      background: linear-gradient(135deg, rgba(255, 125, 0, 0.95), rgba(255, 65, 0, 0.95));\
+      background: linear-gradient(135deg, #ff6b00 0%, #ff1a00 100%);\
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);\
-      border: 1px solid rgba(255, 255, 255, 0.25);\
-      border-radius: 0.3em;\
-      box-shadow: 0 4px 8px rgba(0,0,0,0.5);\
+      border: 1px solid rgba(255, 255, 255, 0.3);\
+      border-radius: 0.35em;\
+      box-shadow: 0 4px 12px rgba(255, 85, 0, 0.5);\
       transform: scale(0.9);\
       animation: qb_in_card 0.4s ease forwards;\
     }\
     @keyframes qb_in_card { to { opacity: 1; transform: scale(1); } }\
     \
-    @media (max-width:768px){\
-      .quality-badges-container { column-gap:0.3em; row-gap:0.2em; margin-left:0.38em; }\
-      .quality-badges-card .quality-badge { height: calc(var(--svgq-badge-size) * 0.52); padding: 0.12em 0.25em; }\
+    @media (max-width: 768px){\
+      .quality-badges-container { column-gap: 0.3em; row-gap: 0.2em; margin-left: 0.38em; }\
+      .quality-badges-card .quality-badge { height: calc(var(--svgq-badge-size) * 0.48); padding: 0.1em 0.2em; }\
     }\
   </style>';
 
@@ -536,7 +544,7 @@
     Lampa.SettingsApi.addParam({
       component: 'interface',
       param: { type: 'button', component: 'svgq' },
-      field: { name: 'Мітки якості', description: 'SVG бейджі якості' },
+      field: { name: 'Мітки якості', description: 'SVG бейджі якості (працює з парсером)' },
       onChange: function () {
         Lampa.Settings.create('svgq', { template: 'settings_svgq', onBack: function () { Lampa.Settings.create('interface'); } });
       }

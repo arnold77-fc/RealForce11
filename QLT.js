@@ -25,7 +25,7 @@
     'UKR': pluginPath + 'UA.png'
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v7';
+  var SETTINGS_KEY = 'svgq_user_settings_v8';
   var CACHE_KEY = 'svgq_parser_cache_v3';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -300,7 +300,6 @@
     return badges.join('');
   }
 
-  // Черга запитів для карток (постерів), щоб не спамити парсер
   var parseQueue = [];
   var isParsingQueue = false;
 
@@ -344,7 +343,7 @@
       if (html !== 'EMPTY') {
         task.elements.forEach(function(el) { el.append('<div class="quality-badges-card">' + html + '</div>'); });
       }
-      setTimeout(processQueue, 400); // Затримка 400мс для безпеки трекерів
+      setTimeout(processQueue, 400); 
     });
   }
 
@@ -362,19 +361,19 @@
     enqueueParse(movie, renderRoot);
   }
 
-  // Патч створення карток Lampa
+  // Надійний патч карток через метод build
   function patchLampaCard() {
     if (window.svgq_card_patched) return;
-    if (window.Lampa && Lampa.Card && Lampa.Card.prototype && Lampa.Card.prototype.create) {
+    if (window.Lampa && Lampa.Card && Lampa.Card.prototype && Lampa.Card.prototype.build) {
       window.svgq_card_patched = true;
-      var origCreate = Lampa.Card.prototype.create;
-      Lampa.Card.prototype.create = function () {
-        origCreate.apply(this, arguments);
+      var origBuild = Lampa.Card.prototype.build;
+      Lampa.Card.prototype.build = function () {
+        origBuild.apply(this, arguments);
         try {
-          var renderRoot = this.render();
+          var target = this.html.find('.card__view').length ? this.html.find('.card__view') : this.html;
           var movie = this.data; 
           if (movie && st.show_on_cards) {
-            applyBadgesToCard(movie, renderRoot);
+            applyBadgesToCard(movie, target);
           }
         } catch(e) {}
       };
@@ -444,7 +443,7 @@
   }
 
   // =====================================================================
-  // STYLES (Оновлений дизайн)
+  // STYLES (Оранжеві бейджі зліва)
   // =====================================================================
 
   var style = '<style id="svgq_styles">\
@@ -463,44 +462,43 @@
     .quality-badges-after-details { margin:0.03em 0 1.9em 0; }\
     .quality-badges-under-rate + .full-start-new__details, .quality-badges-under-rate + .full-start__details { margin-top:0 !important; }\
     \
-    /* Beautiful Badge Design */\
+    /* Orange Colored Badges */\
     .quality-badge{\
       height:var(--svgq-badge-size);\
       display:inline-flex; align-items:center; justify-content:center;\
       padding:0.2em 0.35em;\
-      background: rgba(30, 30, 30, 0.55);\
-      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);\
-      border: 1px solid rgba(255, 255, 255, 0.08);\
+      background: linear-gradient(135deg, rgba(255, 125, 0, 0.95), rgba(255, 65, 0, 0.95));\
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);\
+      border: 1px solid rgba(255, 255, 255, 0.25);\
       border-radius: 0.3em;\
-      box-shadow: 0 4px 8px rgba(0,0,0,0.3);\
+      box-shadow: 0 4px 8px rgba(0,0,0,0.4);\
       box-sizing:border-box;\
       opacity:0; transform:translateY(8px);\
       animation:qb_in 0.35s ease forwards;\
-      transition: transform 0.2s, background 0.2s;\
+      transition: transform 0.2s, filter 0.2s;\
     }\
     @keyframes qb_in{ to{ opacity:1; transform:translateY(0);} }\
     .quality-badge img{\
       height:100%; width:auto; display:block;\
-      filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));\
+      filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6));\
     }\
     .svgq-place-rate .quality-badge:hover, .quality-badges-under-rate .quality-badge:hover {\
       transform: translateY(-2px);\
-      background: rgba(50, 50, 50, 0.8);\
+      filter: brightness(1.1);\
     }\
     \
-    /* Posters / Cards Design */\
+    /* Posters / Cards Design - Left side, below movie/series label */\
     .quality-badges-card {\
       position: absolute;\
-      top: 6px; right: 6px;\
+      top: 30px; left: 6px; /* Зліва, одразу під плашкою типу */\
       display: flex; flex-direction: row; flex-wrap: wrap;\
-      justify-content: flex-end; gap: 4px;\
+      justify-content: flex-start; gap: 4px;\
       z-index: 10; pointer-events: none;\
       width: calc(100% - 12px);\
     }\
     .quality-badges-card .quality-badge {\
       height: calc(var(--svgq-badge-size) * 0.65);\
       padding: 0.15em 0.25em;\
-      background: rgba(15, 15, 15, 0.8);\
       border-radius: 0.25em;\
       box-shadow: 0 2px 5px rgba(0,0,0,0.6);\
       animation: qb_in_card 0.4s ease forwards;\
@@ -615,20 +613,26 @@
     } catch (err) { console.error('[SVGQ] error:', err); }
   });
 
+  // Запуск патча з невеликим інтервалом для 100% гарантії хука
+  var patchTimer = setInterval(function() {
+    if (window.Lampa && window.Lampa.Card && window.Lampa.Card.prototype.build) {
+      patchLampaCard();
+      clearInterval(patchTimer);
+    }
+  }, 500);
+
   Lampa.Listener.follow('app', function (ev) {
     if (ev.type === 'ready') {
       injectStyleOnce();
       startSettings();
-      patchLampaCard();
     }
   });
 
   if (window.appready) {
     injectStyleOnce();
     startSettings();
-    patchLampaCard();
   }
 
-  console.log('[SVGQ] loaded with Posters support');
+  console.log('[SVGQ] loaded with Orange Posters support');
 
 })();

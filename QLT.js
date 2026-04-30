@@ -1,6 +1,8 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
 //SVG Quality Badges (Full card & Posters) + settings + cache + queue
 //Працює при увімкненому парсері
+//Логіка UA — як у UA-Finder+Mod: відрізаємо SUB та рахуємо ukr-доріжки
+//Показуємо ЯКІСТЬ/АУДІО тільки для релізів з UA-доріжкою, іконка UA — в кінці
 
 (function () {
   'use strict';
@@ -25,8 +27,8 @@
     'UKR': pluginPath + 'UA.png'
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v8';
-  var CACHE_KEY = 'svgq_parser_cache_v3';
+  var SETTINGS_KEY = 'svgq_user_settings_v7';
+  var CACHE_KEY = 'svgq_parser_cache_v2';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -117,7 +119,7 @@
     var it = c[key];
     if (!it || !it.t || typeof it.v === 'undefined') return null;
     if (Date.now() - it.t > CACHE_TTL_MS) return null;
-    return it.v; // може бути 'EMPTY'
+    return it.v;
   }
 
   function cacheSet(movie, value) {
@@ -325,7 +327,10 @@
     var cached = cacheGet(task.movie);
     if (cached) {
       if (cached !== 'EMPTY') {
-        task.elements.forEach(function(el) { el.append('<div class="quality-badges-card">' + cached + '</div>'); });
+        task.elements.forEach(function(el) {
+          el.find('.quality-badges-card').remove();
+          el.append('<div class="quality-badges-card">' + cached + '</div>');
+        });
       }
       processQueue();
       return;
@@ -341,7 +346,10 @@
       cacheSet(task.movie, html);
 
       if (html !== 'EMPTY') {
-        task.elements.forEach(function(el) { el.append('<div class="quality-badges-card">' + html + '</div>'); });
+        task.elements.forEach(function(el) {
+          el.find('.quality-badges-card').remove();
+          el.append('<div class="quality-badges-card">' + html + '</div>');
+        });
       }
       setTimeout(processQueue, 400); 
     });
@@ -354,6 +362,7 @@
     var cached = cacheGet(movie);
     if (cached) {
       if (cached !== 'EMPTY') {
+        renderRoot.find('.quality-badges-card').remove();
         renderRoot.append('<div class="quality-badges-card">' + cached + '</div>');
       }
       return;
@@ -361,7 +370,7 @@
     enqueueParse(movie, renderRoot);
   }
 
-  // Надійний патч карток через метод build
+  // Надійний патч карток
   function patchLampaCard() {
     if (window.svgq_card_patched) return;
     if (window.Lampa && Lampa.Card && Lampa.Card.prototype && Lampa.Card.prototype.build) {
@@ -443,7 +452,7 @@
   }
 
   // =====================================================================
-  // STYLES (Оранжеві бейджі зліва)
+  // STYLES 
   // =====================================================================
 
   var style = '<style id="svgq_styles">\
@@ -462,35 +471,28 @@
     .quality-badges-after-details { margin:0.03em 0 1.9em 0; }\
     .quality-badges-under-rate + .full-start-new__details, .quality-badges-under-rate + .full-start__details { margin-top:0 !important; }\
     \
-    /* Orange Colored Badges */\
     .quality-badge{\
       height:var(--svgq-badge-size);\
       display:inline-flex; align-items:center; justify-content:center;\
-      padding:0.2em 0.35em;\
-      background: linear-gradient(135deg, rgba(255, 125, 0, 0.95), rgba(255, 65, 0, 0.95));\
-      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);\
-      border: 1px solid rgba(255, 255, 255, 0.25);\
-      border-radius: 0.3em;\
-      box-shadow: 0 4px 8px rgba(0,0,0,0.4);\
+      padding:0;\
+      background:none;\
+      box-shadow:none;\
+      border:none;\
+      border-radius:0;\
       box-sizing:border-box;\
       opacity:0; transform:translateY(8px);\
       animation:qb_in 0.35s ease forwards;\
-      transition: transform 0.2s, filter 0.2s;\
     }\
     @keyframes qb_in{ to{ opacity:1; transform:translateY(0);} }\
     .quality-badge img{\
       height:100%; width:auto; display:block;\
       filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6));\
     }\
-    .svgq-place-rate .quality-badge:hover, .quality-badges-under-rate .quality-badge:hover {\
-      transform: translateY(-2px);\
-      filter: brightness(1.1);\
-    }\
     \
-    /* Posters / Cards Design - Left side, below movie/series label */\
+    /* Кольорові бейджі зліва на постерах (під надписом типу) */\
     .quality-badges-card {\
       position: absolute;\
-      top: 30px; left: 6px; /* Зліва, одразу під плашкою типу */\
+      top: 32px; left: 6px;\
       display: flex; flex-direction: row; flex-wrap: wrap;\
       justify-content: flex-start; gap: 4px;\
       z-index: 10; pointer-events: none;\
@@ -498,17 +500,20 @@
     }\
     .quality-badges-card .quality-badge {\
       height: calc(var(--svgq-badge-size) * 0.65);\
-      padding: 0.15em 0.25em;\
-      border-radius: 0.25em;\
-      box-shadow: 0 2px 5px rgba(0,0,0,0.6);\
-      animation: qb_in_card 0.4s ease forwards;\
+      padding: 0.15em 0.35em;\
+      background: linear-gradient(135deg, rgba(255, 125, 0, 0.95), rgba(255, 65, 0, 0.95));\
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);\
+      border: 1px solid rgba(255, 255, 255, 0.25);\
+      border-radius: 0.3em;\
+      box-shadow: 0 4px 8px rgba(0,0,0,0.5);\
       transform: scale(0.9);\
+      animation: qb_in_card 0.4s ease forwards;\
     }\
     @keyframes qb_in_card { to { opacity: 1; transform: scale(1); } }\
     \
     @media (max-width:768px){\
       .quality-badges-container { column-gap:0.3em; row-gap:0.2em; margin-left:0.38em; }\
-      .quality-badges-card .quality-badge { height: calc(var(--svgq-badge-size) * 0.55); }\
+      .quality-badges-card .quality-badge { height: calc(var(--svgq-badge-size) * 0.52); padding: 0.12em 0.25em; }\
     }\
   </style>';
 
@@ -531,7 +536,7 @@
     Lampa.SettingsApi.addParam({
       component: 'interface',
       param: { type: 'button', component: 'svgq' },
-      field: { name: 'Мітки якості', description: 'SVG бейджі якості (працює з парсером)' },
+      field: { name: 'Мітки якості', description: 'SVG бейджі якості' },
       onChange: function () {
         Lampa.Settings.create('svgq', { template: 'settings_svgq', onBack: function () { Lampa.Settings.create('interface'); } });
       }
@@ -613,7 +618,6 @@
     } catch (err) { console.error('[SVGQ] error:', err); }
   });
 
-  // Запуск патча з невеликим інтервалом для 100% гарантії хука
   var patchTimer = setInterval(function() {
     if (window.Lampa && window.Lampa.Card && window.Lampa.Card.prototype.build) {
       patchLampaCard();
@@ -633,6 +637,6 @@
     startSettings();
   }
 
-  console.log('[SVGQ] loaded with Orange Posters support');
+  console.log('[SVGQ] loaded with Card & Full Card support');
 
 })();

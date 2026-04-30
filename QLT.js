@@ -1,7 +1,6 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
 //SVG Quality Badges (Full card & Posters) + settings + cache
 //Працює при увімкненому парсері
-//Логіка UA — як у UA-Finder+Mod: відрізаємо SUB та рахуємо ukr-доріжки
 
 (function () {
   'use strict';
@@ -22,12 +21,11 @@
     '7.1': pluginPath + '7.1.svg',
     '5.1': pluginPath + '5.1.svg',
     '4.0': pluginPath + '4.0.svg',
-    '2.0': pluginPath + '2.0.svg',
-    'UKR': pluginPath + 'UA.png'
+    '2.0': pluginPath + '2.0.svg'
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v7';
-  var CACHE_KEY = 'svgq_parser_cache_v3';
+  var SETTINGS_KEY = 'svgq_user_settings_v8';
+  var CACHE_KEY = 'svgq_parser_cache_v4';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -248,10 +246,10 @@
       }
 
       var uaCount = countUkrainianTracks(title);
-      if (!uaCount || uaCount <= 0) continue;
-
-      best.ua = true;
-      if (uaCount > best.ua_tracks) best.ua_tracks = uaCount;
+      if (uaCount && uaCount > 0) {
+        best.ua = true;
+        if (uaCount > best.ua_tracks) best.ua_tracks = uaCount;
+      }
 
       var foundRes = null;
       if (tl.indexOf('4k') >= 0 || tl.indexOf('2160') >= 0 || tl.indexOf('uhd') >= 0) foundRes = '4K';
@@ -303,7 +301,9 @@
       }
     }
     if (best.dolbyVision) best.hdr = true;
-    return best.ua ? best : null;
+
+    var hasData = best.resolution || best.hdr || best.dolbyVision || best.audio || best.ua;
+    return hasData ? best : null;
   }
 
   // =====================================================================
@@ -311,6 +311,16 @@
   // =====================================================================
 
   function createBadgeImg(type, index) {
+    if (type === 'UKR') {
+      var ukrDataUri = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24" viewBox="0 0 16 12"><rect width="16" height="6" fill="#005BBB"/><rect y="6" width="16" height="6" fill="#FFD500"/></svg>');
+      var delay = (index * 0.06) + 's';
+      return (
+        '<div class="quality-badge" style="animation-delay:' + delay + '">' +
+          '<img src="' + ukrDataUri + '" draggable="false" oncontextmenu="return false;">' +
+        '</div>'
+      );
+    }
+
     var iconPath = svgIcons[type];
     if (!iconPath) return '';
     var delay = (index * 0.06) + 's';
@@ -322,13 +332,13 @@
   }
 
   function buildBadgesHtml(best) {
-    if (!best || !best.ua) return '';
+    if (!best) return '';
     var badges = [];
     if (best.resolution) badges.push(createBadgeImg(best.resolution, badges.length));
     if (best.hdr) badges.push(createBadgeImg('HDR', badges.length));
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
-    badges.push(createBadgeImg('UKR', badges.length));
+    if (best.ua) badges.push(createBadgeImg('UKR', badges.length));
     return badges.join('');
   }
 
@@ -359,9 +369,7 @@
       if (cached !== 'EMPTY') {
         task.elements.forEach(function(el) {
           $(el).find('.quality-badges-card').remove();
-          var target = $(el).find('.card__view');
-          if (!target.length) target = $(el);
-          target.append('<div class="quality-badges-card">' + cached + '</div>');
+          $(el).append('<div class="quality-badges-card">' + cached + '</div>');
         });
       }
       processQueue();
@@ -385,9 +393,7 @@
       if (html !== 'EMPTY') {
         task.elements.forEach(function(el) {
           $(el).find('.quality-badges-card').remove();
-          var target = $(el).find('.card__view');
-          if (!target.length) target = $(el);
-          target.append('<div class="quality-badges-card">' + html + '</div>');
+          $(el).append('<div class="quality-badges-card">' + html + '</div>');
         });
       }
       setTimeout(processQueue, 400);
@@ -403,9 +409,7 @@
     if (cached) {
       if (cached !== 'EMPTY') {
         $(renderRoot).find('.quality-badges-card').remove();
-        var target = $(renderRoot).find('.card__view');
-        if (!target.length) target = $(renderRoot);
-        target.append('<div class="quality-badges-card">' + cached + '</div>');
+        $(renderRoot).append('<div class="quality-badges-card">' + cached + '</div>');
       }
       return;
     }

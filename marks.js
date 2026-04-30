@@ -22,6 +22,7 @@
             empty: true,
             resolution: 'SD',
             ukr: false,
+            rus: false,
             eng: false,
             hdr: false,
             dolbyVision: false,
@@ -73,7 +74,7 @@
         });
     }
 
-    function getBestJacredDirect(movie, callback) {
+    function getBestJacred(movie, callback) {
         var cacheKey = 'marks_jacred_v1_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
@@ -87,10 +88,10 @@
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
-        var year = String(dateRaw).substr(0, 4);
+        var year = String(varRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
 
-        var releaseDate = new Date(dateRaw);
+        var releaseDate = new Date(varRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
@@ -102,7 +103,7 @@
                 var parsed = JSON.parse(body);
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
                 
-                var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                var best = { resolution: 'SD', ukr: false, rus: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 
                 var bestRes = 'SD';
                 var lock4k = false;
@@ -116,11 +117,6 @@
                     var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
 
                     if (is4k) {
-                        bestRes = '4K'; // fix to bestRes
-                        bestRes = '4K';
-                        bestRes = '4K';
-                        bestRes = '4K';
-                        bestRes = '4K'; // wait, it was bestRes
                         bestRes = '4K';
                         lock4k = true;
                     } else if (!lock4k) {
@@ -133,13 +129,14 @@
                 results.forEach(function (item) {
                     var t = String(item.title || '').toLowerCase();
                     if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
+                    if (t.indexOf('rus') >= 0 || t.indexOf('ru') >= 0) best.rus = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
                     if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
-                best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
+                best.empty = (best.resolution === 'SD' && !best.ukr && !best.rus && !best.eng && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
                 Lampa.Storage.set(cacheKey, best);
@@ -228,7 +225,7 @@
     }
 
     function resolveMarks(movie, callback) {
-        getBestJacredDirect(movie, function (data) {
+        getBestJacred(movie, function (data) {
             var bestData = data || emptyMarksData();
 
             if (!bestData.ukr) {
@@ -262,17 +259,15 @@
         if (!isSettingEnabled('marks_enabled', false)) return;
 
         if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
+        if (data.rus && isSettingEnabled('marks_ru', false)) container.append(createCardBadge('ru', 'RU'));
         if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
 
-        if (data.resolution && data.resolution !== 'SD') {
+        if (data.resolution) {
             if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) {
                 container.append(createCardBadge('4k', '4K'));
-            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('fhd', '1080p'));
-            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('hd', '720p'));
             } else if (isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('hd', data.resolution));
+                var resText = (data.resolution === 'FHD') ? '1080p' : (data.resolution === 'HD' ? '720p' : data.resolution);
+                container.append(createCardBadge('fhd', resText));
             }
         }
 
@@ -357,15 +352,18 @@
         if (data.ukr && isSettingEnabled('marks_ua', false)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA+</div>');
         }
+        if (data.rus && isSettingEnabled('marks_ru', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ru">RU</div>');
+        }
 
-        if (data.resolution && data.resolution !== 'SD') {
+        if (data.resolution) {
             var resText = data.resolution;
             if (resText === 'FHD') resText = '1080p';
             else if (resText === 'HD') resText = '720p';
 
             var showQuality = false;
             if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) showQuality = true;
-            else if ((data.resolution === 'FHD' || data.resolution === 'HD') && isSettingEnabled('marks_fhd', false)) showQuality = true;
+            else if (isSettingEnabled('marks_fhd', false)) showQuality = true;
 
             if (showQuality) {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
@@ -499,13 +497,14 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v3';
+        var migrateKey = 'marks_defaults_migrated_v4'; // Increased migration key so that RU is added
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
                 Lampa.Storage.set('marks_enabled', false);
             }
             Lampa.Storage.set('marks_ua', true);
+            Lampa.Storage.set('marks_ru', true);
             Lampa.Storage.set('marks_en', true);
             Lampa.Storage.set('marks_4k', true);
             Lampa.Storage.set('marks_fhd', true);
@@ -535,6 +534,13 @@
             component: targetComponent,
             param: { name: 'marks_ua', type: 'trigger', default: true },
             field: { name: 'Показувати мітку UA' },
+            onChange: refreshBadgesNow
+        });
+        
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_ru', type: 'trigger', default: true },
+            field: { name: 'Показувати мітку RU' },
             onChange: refreshBadgesNow
         });
 
@@ -612,6 +618,7 @@
                 white-space: nowrap;\
             }\
             .likhtar-marks-badge--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
+            .likhtar-marks-badge--ru  { background: linear-gradient(135deg, #d32f2f, #f44336); border-color: rgba(244,67,54,0.4); }\
             .likhtar-marks-badge--en  { background: linear-gradient(135deg, #37474f, #78909c); border-color: rgba(120,144,156,0.4); }\
             .likhtar-marks-badge--4k  { background: linear-gradient(135deg, #e65100, #ff9800); border-color: rgba(255,152,0,0.4); }\
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
@@ -652,6 +659,7 @@
                 box-shadow: 0 2px 6px rgba(0,0,0,0.4);\
             }\
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
+            .likhtar-marks-full-badge--ru { background: linear-gradient(135deg, #d32f2f, #f44336); border-color: rgba(244,67,54,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\

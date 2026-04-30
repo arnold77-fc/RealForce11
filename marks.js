@@ -4,7 +4,7 @@
     /**
      * ====================================================================================
      * MODULE: Lampa Marks Mod
-     * Version: 4.2.0 (Full Monolith)
+     * Version: 4.2.1 (Full Monolith)
      * Compatibility: Lampa Platform
      * Description: Displays full array of content tags on Lampa UI cards.
      * ====================================================================================
@@ -257,7 +257,8 @@
 
         try {
             var local = Lampa.Storage.get(cache_key, '{}');
-            if (local && local.timestamp && (Date.now() - local.timestamp < 1000 * 60 * 60 * 48)) {
+            // Уменьшено время кэширования до 15 минут (1000 * 60 * 15)
+            if (local && local.timestamp && (Date.now() - local.timestamp < 1000 * 60 * 15)) {
                 jacred_cache[cache_key] = local.data;
                 return callback(local.data);
             }

@@ -30,18 +30,12 @@
     }
 
     function fetchWithProxy(url, callback) {
-        var proxies = [];
-        
-        // --- ИНТЕГРАЦИЯ ТВОЕГО ПРОКСИ ---
-        var customProxy = Lampa.Storage.get('marks_custom_proxy', '').trim();
-        if (customProxy) {
-            proxies.push(customProxy);
-        }
-
-        // Стандартные публичные прокси (используются если твой не ответит или не задан)
-        proxies.push('https://api.allorigins.win/get?url=');
-        proxies.push('https://cors-anywhere.herokuapp.com/');
-        proxies.push('https://thingproxy.freeboard.io/fetch/');
+        var proxies = [
+            'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url=', // Ваш основной прокси
+            'https://api.allorigins.win/get?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://thingproxy.freeboard.io/fetch/'
+        ];
 
         function request(reqUrl, setHeaders, onFail) {
             var xhr = new XMLHttpRequest();
@@ -61,16 +55,9 @@
             if (index >= proxies.length) return callback(new Error('All proxies failed'), null);
 
             var proxy = proxies[index];
-            var reqUrl = '';
-            
-            // Обработка разных форматов ссылки прокси
-            if (proxy.indexOf('{url}') > -1) {
-                reqUrl = proxy.replace('{url}', encodeURIComponent(url));
-            } else if (proxy === 'https://api.allorigins.win/get?url=') {
-                reqUrl = proxy + encodeURIComponent(url);
-            } else {
-                reqUrl = proxy + url;
-            }
+            var reqUrl = (proxy.indexOf('allorigins') > -1 || proxy.indexOf('arnoldclasic6') > -1) 
+                ? proxy + encodeURIComponent(url) 
+                : proxy + url;
 
             request(reqUrl, function (xhr) {
                 if (proxy.indexOf('cors-anywhere') > -1) {
@@ -81,13 +68,13 @@
             });
         }
 
-        // Попытка прямого запроса, если не вышло — перебор прокси
         request(url, null, function () {
             tryProxy(0);
         });
     }
 
     function getBestJacred(movie, callback) {
+        if (!movie || !movie.id) return callback(emptyMarksData());
         var cacheKey = 'marks_jacred_v1_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
@@ -114,8 +101,7 @@
 
             try {
                 var parsed = JSON.parse(body);
-                // Обработка специфичного ответа от allorigins
-                if (parsed.contents) parsed = JSON.parse(parsed.contents);
+                if (parsed && parsed.contents) parsed = JSON.parse(parsed.contents);
                 
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
@@ -123,7 +109,8 @@
                 var lock4k = false;
 
                 results.forEach(function (item) {
-                    var t = String(item.title || '').toLowerCase();
+                    if (!item || !item.title) return;
+                    var t = String(item.title).toLowerCase();
                     if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0) return;
 
                     var is4k = (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0);
@@ -141,7 +128,8 @@
                 best.resolution = bestRes;
 
                 results.forEach(function (item) {
-                    var t = String(item.title || '').toLowerCase();
+                    if (!item || !item.title) return;
+                    var t = String(item.title).toLowerCase();
                     if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
@@ -162,6 +150,7 @@
     }
 
     function checkUafixBandera(movie, callback) {
+        if (!movie) return callback(null);
         var title = movie.title || movie.name || '';
         var origTitle = movie.original_title || movie.original_name || '';
         var imdbId = movie.imdb_id || '';
@@ -183,6 +172,7 @@
     }
 
     function checkUafixDirect(movie, callback) {
+        if (!movie) return callback(false);
         var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
         if (!query) return callback(false);
 
@@ -197,7 +187,7 @@
     function checkUafix(movie, callback) {
         if (!movie || !movie.id) return callback(false);
         var key = 'marks_uafix_v1_' + movie.id;
-        if (uafixCache[key] !== undefined) return uafixCache[key];
+        if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
 
         checkUafixBandera(movie, function (result) {
             if (result !== null) {
@@ -213,6 +203,7 @@
     }
 
     function getMovieFromCard(cardNode) {
+        if (!cardNode) return null;
         var card = $(cardNode);
         return cardNode.heroMovieData || card.data('item') || cardNode.card_data || cardNode.item || null;
     }
@@ -229,6 +220,7 @@
     }
 
     function resolveMarks(movie, callback) {
+        if (!movie) return callback(emptyMarksData());
         getBestJacred(movie, function (data) {
             var bestData = data || emptyMarksData();
             if (!bestData.ukr) {
@@ -257,6 +249,7 @@
     }
 
     function renderCardBadges(container, data, movie, cardRoot) {
+        if (!container || !data) return;
         container.empty();
         if (!isSettingEnabled('marks_enabled', false)) return;
 
@@ -300,7 +293,7 @@
     }
 
     function addMarksToCard(card, movie, viewSelector) {
-        if (!isSettingEnabled('marks_enabled', false)) return;
+        if (!card || !movie || !isSettingEnabled('marks_enabled', false)) return;
         var containerParent = viewSelector ? card.find(viewSelector).first() : card;
         if (!containerParent.length) containerParent = card;
         if (containerParent.css('position') === 'static') containerParent.css('position', 'relative');
@@ -343,6 +336,7 @@
     }
 
     function renderFullBadges(container, data, movie) {
+        if (!container || !data) return;
         container.empty();
         if (!isSettingEnabled('marks_enabled', false)) {
             container.remove();
@@ -500,66 +494,55 @@
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { type: 'title' },
-            field: { name: '\u041c\u0456\u0442\u043a\u0438 (Marks)' }
-        });
-
-        // --- НОВОЕ ПОЛЕ ДЛЯ ТВОЕГО ПРОКСИ ---
-        Lampa.SettingsApi.addParam({
-            component: targetComponent,
-            param: { name: 'marks_custom_proxy', type: 'input', default: '' },
-            field: { 
-                name: '\u0421\u0432\u0456\u0439 Proxy \u0441\u0435\u0440\u0432\u0435\u0440', 
-                description: '\u041d\u0430\u043f\u0440: https://proxy.com/get?url= (\u0430\u0431\u043e \u0437 {url})' 
-            },
-            onChange: refreshBadgesNow
+            field: { name: 'Мітки (Marks)' }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_enabled', type: 'trigger', default: false },
-            field: { name: '\u0423\u0432\u0456\u043c\u043a\u043d\u0443\u0442\u0438 \u043c\u043e\u0434\u0443\u043b\u044c \u043c\u0456\u0442\u043e\u043a' },
+            field: { name: 'Увімкнути модуль міток' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_ua', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 UA' },
+            field: { name: 'Показувати мітку UA' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_en', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 EN' },
+            field: { name: 'Показувати мітку EN' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_4k', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 4K' },
+            field: { name: 'Показувати мітку 4K' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_fhd', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 1080p / 720p' },
+            field: { name: 'Показувати мітки 1080p / 720p' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision / Atmos' },
+            field: { name: 'Показувати мітку HDR / DV / Atmos' },
             onChange: refreshBadgesNow
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_rating', type: 'trigger', default: true },
-            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 \u0440\u0435\u0439\u0442\u0438\u043d\u0433\u0443' },
+            field: { name: 'Показувати мітку рейтингу' },
             onChange: refreshBadgesNow
         });
     }

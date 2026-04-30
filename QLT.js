@@ -1,7 +1,6 @@
 //Оригінальний плагін https://github.com/FoxStudio24/lampa/blob/main/Quality/Quality.js
 //SVG Quality Badges (Full card & Posters) + settings + cache + modern gradient design
-//Працює при увімкненому парсері
-//Шукає як українську, так і російську озвучку
+//Працює при увімкненому парсері (знаходить усі якості та озвучки)
 
 (function () {
   'use strict';
@@ -27,8 +26,8 @@
     'RU': pluginPath + 'RU.png' // Додано індикатор мови
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v10';
-  var CACHE_KEY = 'svgq_parser_cache_v5';
+  var SETTINGS_KEY = 'svgq_user_settings_v11';
+  var CACHE_KEY = 'svgq_parser_cache_v6';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -146,11 +145,16 @@
     var subsIndex = cleanTitle.indexOf('sub');
     if (subsIndex !== -1) cleanTitle = cleanTitle.substring(0, subsIndex);
 
-    var multi = cleanTitle.match(/(\d+)x\s*(ukr|rus|рус)/);
-    if (multi && multi[1]) return parseInt(multi[1], 10) || 0;
+    var multiUkr = cleanTitle.match(/(\d+)x\s*(ukr)/);
+    var multiRus = cleanTitle.match(/(\d+)x\s*(rus|рус)/);
+    if (multiUkr && multiUkr[1]) return parseInt(multiUkr[1], 10) || 0;
+    if (multiRus && multiRus[1]) return parseInt(multiRus[1], 10) || 0;
 
-    var singles = cleanTitle.match(/\b(ukr|rus|рус)\b/g);
-    if (singles) return singles.length;
+    var singlesUkr = cleanTitle.match(/\bukr\b/g);
+    var singlesRus = cleanTitle.match(/\b(rus|рус)\b/g);
+    if (singlesUkr) return singlesUkr.length;
+    if (singlesRus) return singlesRus.length;
+
     return 0;
   }
 
@@ -198,7 +202,18 @@
     var cardType = getCardType(movie);
     var cardYear = getMovieYear(movie);
 
-    var best = { resolution: null, hdr: false, dolbyVision: false, audio: null, hasTrack: false, trackTracks: 0 };
+    var best = { 
+      resolution: null, 
+      resolutions: [], 
+      hdr: false, 
+      dolbyVision: false, 
+      audio: null, 
+      hasTrack: false, 
+      trackTracks: 0,
+      hasUkr: false,
+      hasRus: false
+    };
+
     var resOrder = ['HD', 'FULL HD', '2K', '4K'];
     var audioOrder = ['2.0', '4.0', '5.1', '7.1'];
     var limit = Math.min(results.length, 50);
@@ -229,12 +244,20 @@
       else if (tl.indexOf('1080') >= 0 || tl.indexOf('fhd') >= 0 || tl.indexOf('full hd') >= 0) foundRes = 'FULL HD';
       else if (tl.indexOf('720') >= 0 || /\bhd\b/.test(tl)) foundRes = 'HD';
 
-      if (foundRes && (!best.resolution || resOrder.indexOf(foundRes) > resOrder.indexOf(best.resolution))) {
-        best.resolution = foundRes;
+      if (foundRes) {
+        if (best.resolutions.indexOf(foundRes) === -1) {
+          best.resolutions.push(foundRes);
+        }
+        if (!best.resolution || resOrder.indexOf(foundRes) > resOrder.indexOf(best.resolution)) {
+          best.resolution = foundRes;
+        }
       }
 
       if (tl.indexOf('dolby vision') >= 0 || tl.indexOf('dovi') >= 0) best.dolbyVision = true;
       if (tl.indexOf('hdr') >= 0) best.hdr = true;
+
+      if (tl.indexOf('ukr') >= 0) best.hasUkr = true;
+      if (tl.indexOf('rus') >= 0 || tl.indexOf('рус') >= 0) best.hasRus = true;
 
       if (item.ffprobe && Array.isArray(item.ffprobe)) {
         for (var k = 0; k < item.ffprobe.length; k++) {
@@ -251,7 +274,12 @@
             else if (h >= 1080 || w >= 1920) res = 'FULL HD';
             else if (h >= 720 || w >= 1280) res = 'HD';
 
-            if (res && (!best.resolution || resOrder.indexOf(res) > resOrder.indexOf(best.resolution))) best.resolution = res;
+            if (res) {
+              if (best.resolutions.indexOf(res) === -1) {
+                best.resolutions.push(res);
+              }
+              if (!best.resolution || resOrder.indexOf(res) > resOrder.indexOf(best.resolution)) best.resolution = res;
+            }
 
             try {
               if (stream.side_data_list && JSON.stringify(stream.side_data_list).indexOf('Vision') >= 0) best.dolbyVision = true;
@@ -291,18 +319,26 @@
     );
   }
 
-  function buildBadgesHtml(best, titleText) {
+  function buildBadgesHtml(best) {
     if (!best || !best.hasTrack) return '';
     var badges = [];
-    if (best.resolution) badges.push(createBadgeImg(best.resolution, badges.length));
+
+    if (best.resolutions && best.resolutions.length > 0) {
+      best.resolutions.forEach(function (res) {
+        badges.push(createBadgeImg(res, badges.length));
+      });
+    } else if (best.resolution) {
+      badges.push(createBadgeImg(best.resolution, badges.length));
+    }
+
     if (best.hdr) badges.push(createBadgeImg('HDR', badges.length));
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
-    
-    var tl = (titleText || '').toLowerCase();
-    if (tl.indexOf('rus') >= 0 || tl.indexOf('рус') >= 0) {
+
+    if (best.hasRus) {
       badges.push(createBadgeImg('RU', badges.length));
-    } else {
+    }
+    if (best.hasUkr) {
       badges.push(createBadgeImg('UKR', badges.length));
     }
     return badges.join('');
@@ -346,7 +382,7 @@
       var html = 'EMPTY';
       if (response && response.Results) {
         var best = getBest(response.Results, task.movie);
-        var bHtml = buildBadgesHtml(best, task.movie.title || task.movie.name);
+        var bHtml = buildBadgesHtml(best);
         if (bHtml) html = bHtml;
       }
       cacheSet(task.movie, html);
@@ -362,7 +398,7 @@
   }
 
   function applyBadgesToCard(movie, renderRoot) {
-    if (!Lampa.Storage || !Lampa.Storage.field || !Lampa.Storage.field('parser_use')) return;
+    if (!Lampa.Parser || typeof Lampa.Parser.get !== 'function') return;
     if (!movie || (!movie.title && !movie.name)) return;
     
     var cached = cacheGet(movie);
@@ -377,12 +413,11 @@
   }
 
   // =====================================================================
-  // PATCH CARD RENDER (Відображення на постерах)
+  // PATCH CARD RENDER
   // =====================================================================
   function patchLampaCard() {
-    // Використовуємо стандартний слухач Lampa для карток
     Lampa.Listener.follow('card', function (e) {
-      if (e.type === 'build' && st.show_on_cards) {
+      if ((e.type === 'build' || e.type === 'render') && st.show_on_cards) {
         try {
           var movie = e.data;
           var html = e.object.html;
@@ -430,7 +465,7 @@
 
   function applyBadgesToFullCard(movie, renderRoot) {
     if (!movie || !renderRoot) return;
-    if (!Lampa || !Lampa.Storage || !Lampa.Storage.field || !Lampa.Storage.field('parser_use')) return;
+    if (!Lampa.Parser || typeof Lampa.Parser.get !== 'function') return;
 
     var container = ensureContainer(renderRoot);
     if (!container) return;
@@ -448,7 +483,7 @@
         return;
       }
       var best = getBest(response.Results, movie);
-      var html = buildBadgesHtml(best, movie.title || movie.name);
+      var html = buildBadgesHtml(best);
       cacheSet(movie, html || 'EMPTY');
       if (html) container.html(html);
     });
@@ -622,7 +657,6 @@
     } catch (err) { console.error('[SVGQ] error full:', err); }
   });
 
-  // Запуск виводу на постерах при старті
   patchLampaCard();
 
   Lampa.Listener.follow('app', function (ev) {
@@ -637,6 +671,6 @@
     startSettings();
   }
 
-  console.log('[SVGQ] loaded with Card & Full Card support');
+  console.log('[SVGQ] loaded with Card & Full Card support (all resolutions & languages)');
 
 })();

@@ -90,7 +90,7 @@
 
         try {
             var raw = Lampa.Storage.get(cacheKey, '');
-            // Кэш хранится 15 минут (15 * 60 * 1000 = 900,000 мс)
+            // Кэш хранится 15 минут
             if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 15 * 60 * 1000)) {
                 jacredCache[cacheKey] = raw;
                 return callback(raw);
@@ -98,8 +98,7 @@
         } catch (e) { }
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
-        var dateRaw = movie.release_date || movie.first_air_date || '';
-        var dateRaw = movie.release_date || movie.first_air_date || '';
+        var dateRaw = movie.release_date || movie.first_air_date || movie.first_air_date || '';
         var year = String(dateRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
 
@@ -117,7 +116,6 @@
 
                 var best = { resolution: 'SD', ukr: false, eng: false, rus: false, hdr: false, dolbyVision: false, atmos: false };
 
-                // --- ЖЕСТКАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ КАЧЕСТВА ---
                 var bestRes = 'SD';
                 var lock4k = false;
 
@@ -272,7 +270,7 @@
         if (!isSettingEnabled('marks_enabled', false)) return;
 
         if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
-        if (data.rus && isSettingEnabled('marks_ru', false)) container.append(createCardBadge('ru', 'RU'));
+        if (data.rus && isSettingEnabled('marks_ru', false)) container.append(createCardBadge('ru', 'RU+'));
         if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
 
         if (data.resolution && data.resolution !== 'SD') {
@@ -514,7 +512,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4'; // Инкремент для автоматического включения нового параметра
+        var migrateKey = 'marks_defaults_migrated_v4'; // Увеличиваем версию для миграции настроек
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {

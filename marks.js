@@ -87,10 +87,10 @@
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
-        var year = String(dateRaw).substr(0, 4);
+        var year = String(varRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
 
-        var releaseDate = new Date(dateRaw);
+        var releaseDate = new Date(varRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;

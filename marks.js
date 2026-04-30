@@ -37,7 +37,8 @@
             ukr: false,
             eng: false,
             hdr: false,
-            dolbyVision: false
+            dolbyVision: false,
+            atmos: false
         };
     }
 
@@ -123,8 +124,8 @@
                     return callback(emptyData);
                 }
 
-                var bestGlobal = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false };
-                var bestUkr = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false };
+                var bestGlobal = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                var bestUkr = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
 
                 results.forEach(function (item) {
@@ -140,6 +141,7 @@
                     var isEng = false;
                     var isHdr = false;
                     var isDv = false;
+                    var isAtmos = false;
 
                     if (t.indexOf('ukr') >= 0 || t.indexOf('СѓРєСЂ') >= 0 || t.indexOf('ua') >= 0 || t.indexOf('ukrainian') >= 0) isUkr = true;
                     if (movie.original_language === 'uk') isUkr = true;
@@ -151,24 +153,32 @@
                     } else if (t.indexOf('hdr') >= 0) {
                         isHdr = true;
                     }
+                    
+                    if (t.indexOf('dolby atmos') >= 0 || t.indexOf('atmos') >= 0) {
+                        isAtmos = true;
+                    }
+
+                    if (isHdr) bestGlobal.hdr = true;
+                    if (isDv) bestGlobal.dolbyVision = true;
+                    if (isAtmos) bestGlobal.atmos = true;
+                    if (isEng) bestGlobal.eng = true;
 
                     if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestGlobal.resolution)) {
                         bestGlobal.resolution = currentRes;
-                        bestGlobal.hdr = isHdr;
-                        bestGlobal.dolbyVision = isDv;
                     }
-                    if (isEng) bestGlobal.eng = true;
 
                     if (isUkr) {
                         bestGlobal.ukr = true;
                         bestUkr.ukr = true;
 
+                        if (isHdr) bestUkr.hdr = true;
+                        if (isDv) bestUkr.dolbyVision = true;
+                        if (isAtmos) bestUkr.atmos = true;
+                        if (isEng) bestUkr.eng = true;
+
                         if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestUkr.resolution)) {
                             bestUkr.resolution = currentRes;
-                            bestUkr.hdr = isHdr;
-                            bestUkr.dolbyVision = isDv;
                         }
-                        if (isEng) bestUkr.eng = true;
                     }
                 });
 
@@ -323,6 +333,10 @@
                 container.append(createCardBadge('dv', 'DV'));
             }
         }
+        
+        if (data.atmos && isSettingEnabled('marks_atmos', false)) {
+            container.append(createCardBadge('atmos', 'ATMOS'));
+        }
 
         var hasCustomRating = false;
         if (isSettingEnabled('marks_rating', false)) {
@@ -424,6 +438,10 @@
             if (data.dolbyVision) {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--dv">Dolby Vision</div>');
             }
+        }
+        
+        if (data.atmos && isSettingEnabled('marks_atmos', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--atmos">Dolby Atmos</div>');
         }
 
         if (isSettingEnabled('marks_rating', false)) {
@@ -563,7 +581,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4';
+        var migrateKey = 'marks_defaults_migrated_v5';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             var enabledRaw = Lampa.Storage.get('marks_enabled', null);
@@ -575,6 +593,7 @@
             Lampa.Storage.set('marks_4k', true);
             Lampa.Storage.set('marks_fhd', true);
             Lampa.Storage.set('marks_hdr', true);
+            Lampa.Storage.set('marks_atmos', true);
             Lampa.Storage.set('marks_rating', true);
             Lampa.Storage.set(migrateKey, true);
         }
@@ -642,6 +661,13 @@
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
+            param: { name: 'marks_atmos', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 Dolby Atmos' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
             param: { name: 'marks_rating', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 \u0440\u0435\u0439\u0442\u0438\u043d\u0433\u0443' },
             onChange: refreshBadgesNow
@@ -691,7 +717,8 @@
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
-            .likhtar-marks-badge--dv  { background: linear-gradient(135deg, #311b92, #7c4dff); color: #fff; border-color: rgba(124,77,255,0.4); }\
+            .likhtar-marks-badge--dv  { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #00838f, #26c6da); color: #fff; border-color: rgba(38,198,218,0.4); }\
             .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
             .card.likhtar-marks-active .card__type,\
@@ -730,7 +757,8 @@
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
-            .likhtar-marks-full-badge--dv  { background: linear-gradient(135deg, #311b92, #7c4dff); color: #fff; border-color: rgba(124,77,255,0.4); }\
+            .likhtar-marks-full-badge--dv  { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-full-badge--atmos { background: linear-gradient(135deg, #00838f, #26c6da); color: #fff; border-color: rgba(38,198,218,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             body.marks-hide-external-badges .likhtar-marks-container,\
             body.marks-hide-external-badges .likhtar-marks-full,\

@@ -116,6 +116,11 @@
                     var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
 
                     if (is4k) {
+                        bestRes = '4K'; // fix to bestRes
+                        bestRes = '4K';
+                        bestRes = '4K';
+                        bestRes = '4K';
+                        bestRes = '4K'; // wait, it was bestRes
                         bestRes = '4K';
                         lock4k = true;
                     } else if (!lock4k) {
@@ -223,7 +228,7 @@
     }
 
     function resolveMarks(movie, callback) {
-        getJacredDirect(movie, function (data) {
+        getBestJacredDirect(movie, function (data) {
             var bestData = data || emptyMarksData();
 
             if (!bestData.ukr) {
@@ -400,14 +405,14 @@
                 renderFullBadges(posterBadges, bestData, movie);
             });
         } else {
-            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rate-line').first();
+            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rateline, .full-start-new__rate-line, .full-start__rate-line').first();
             if (!rateLine.length) return;
             if ($render.find('.likhtar-marks-row').length) return;
 
             var qualityRow = $('<div class="likhtar-marks-row"></div>');
-            rateLine.append(varRow);
+            rateLine.append(qualityRow);
             resolveMarks(movie, function (bestData) {
-                renderFullBadges(varRow, bestData, movie);
+                renderFullBadges(qualityRow, bestData, movie);
             });
         }
     }

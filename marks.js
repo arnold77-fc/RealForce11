@@ -32,7 +32,6 @@
 
     function fetchWithProxy(url, callback) {
         var proxies = [
-            'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url=',
             'https://api.allorigins.win/get?url=',
             'https://cors-anywhere.herokuapp.com/',
             'https://thingproxy.freeboard.io/fetch/'
@@ -117,7 +116,6 @@
                     var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
 
                     if (is4k) {
-                        bestRes = '4K'; // fix: we are declaring bestRes below as bestRes
                         bestRes = '4K';
                         lock4k = true;
                     } else if (!lock4k) {
@@ -131,13 +129,13 @@
                     var t = String(item.title || '').toLowerCase();
                     if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
-                    if (t.indexOf('rus') >= 0 || t.indexOf('russian') >= 0) best.rus = true;
+                    if (t.indexOf('rus') >= 0 || t.indexOf('ru') >= 0 || t.indexOf('russian') >= 0 || t.indexOf('dub') >= 0) best.rus = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
                     if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
-                best.empty = (best.resolution === 'SD' && !best.ukr && !best.rus && !best.eng && !best.hdr);
+                best.empty = (best.resolution === 'SD' && !best.ukr && !best.eng && !best.rus && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
                 Lampa.Storage.set(cacheKey, best);
@@ -260,7 +258,7 @@
         if (!isSettingEnabled('marks_enabled', false)) return;
 
         if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
-        if (data.rus && isSettingEnabled('marks_ru', false)) container.append(createCardBadge('ru', 'RU'));
+        if (data.rus && isSettingEnabled('marks_rus', false)) container.append(createCardBadge('rus', 'RUS'));
         if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
 
         if (data.resolution && data.resolution !== 'SD') {
@@ -356,8 +354,8 @@
         if (data.ukr && isSettingEnabled('marks_ua', false)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA+</div>');
         }
-        if (data.rus && isSettingEnabled('marks_ru', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ru">RU+</div>');
+        if (data.rus && isSettingEnabled('marks_rus', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--rus">RUS</div>');
         }
 
         if (data.resolution && data.resolution !== 'SD') {
@@ -501,7 +499,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4';
+        var migrateKey = 'marks_defaults_migrated_v3';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
@@ -509,7 +507,7 @@
             }
             Lampa.Storage.set('marks_ua', true);
             Lampa.Storage.set('marks_en', true);
-            Lampa.Storage.set('marks_ru', true);
+            Lampa.Storage.set('marks_rus', true);
             Lampa.Storage.set('marks_4k', true);
             Lampa.Storage.set('marks_fhd', true);
             Lampa.Storage.set('marks_hdr', true);
@@ -543,8 +541,8 @@
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
-            param: { name: 'marks_ru', type: 'trigger', default: true },
-            field: { name: 'Показати мітку RU' },
+            param: { name: 'marks_rus', type: 'trigger', default: true },
+            field: { name: 'Показати мітку RUS' },
             onChange: refreshBadgesNow
         });
 
@@ -622,7 +620,7 @@
                 white-space: nowrap;\
             }\
             .likhtar-marks-badge--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-badge--ru  { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
+            .likhtar-marks-badge--rus  { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
             .likhtar-marks-badge--en  { background: linear-gradient(135deg, #37474f, #78909c); border-color: rgba(120,144,156,0.4); }\
             .likhtar-marks-badge--4k  { background: linear-gradient(135deg, #e65100, #ff9800); border-color: rgba(255,152,0,0.4); }\
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
@@ -663,7 +661,7 @@
                 box-shadow: 0 2px 6px rgba(0,0,0,0.4);\
             }\
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-full-badge--ru { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
+            .likhtar-marks-full-badge--rus { background: linear-gradient(135deg, #c62828, #ef5350); border-color: rgba(239,83,80,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\

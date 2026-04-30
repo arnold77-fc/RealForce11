@@ -27,8 +27,8 @@
     'RU': pluginPath + 'RU.png' // Додано індикатор мови
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v9';
-  var CACHE_KEY = 'svgq_parser_cache_v4';
+  var SETTINGS_KEY = 'svgq_user_settings_v10';
+  var CACHE_KEY = 'svgq_parser_cache_v5';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -140,17 +140,16 @@
   // PARSING LOGIC
   // =====================================================================
 
-  // Шукає як українську, так і російську доріжку
   function countSupportedTracks(title) {
     if (!title) return 0;
     var cleanTitle = String(title).toLowerCase();
     var subsIndex = cleanTitle.indexOf('sub');
     if (subsIndex !== -1) cleanTitle = cleanTitle.substring(0, subsIndex);
 
-    var multi = cleanTitle.match(/(\d+)x\s*(ukr|rus)/);
+    var multi = cleanTitle.match(/(\d+)x\s*(ukr|rus|рус)/);
     if (multi && multi[1]) return parseInt(multi[1], 10) || 0;
 
-    var singles = cleanTitle.match(/\b(ukr|rus)\b/g);
+    var singles = cleanTitle.match(/\b(ukr|rus|рус)\b/g);
     if (singles) return singles.length;
     return 0;
   }
@@ -300,8 +299,8 @@
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
     
-    // Визначення мови (укр чи рос)
-    if (titleText && titleText.toLowerCase().indexOf('rus') >= 0) {
+    var tl = (titleText || '').toLowerCase();
+    if (tl.indexOf('rus') >= 0 || tl.indexOf('рус') >= 0) {
       badges.push(createBadgeImg('RU', badges.length));
     } else {
       badges.push(createBadgeImg('UKR', badges.length));
@@ -377,23 +376,20 @@
     enqueueParse(movie, renderRoot);
   }
 
+  // =====================================================================
+  // PATCH CARD RENDER (Відображення на постерах)
+  // =====================================================================
   function patchLampaCard() {
-    if (window.svgq_card_patched) return;
-    if (window.Lampa && Lampa.Card && Lampa.Card.prototype && Lampa.Card.prototype.build) {
-      window.svgq_card_patched = true;
-      var origBuild = Lampa.Card.prototype.build;
-      Lampa.Card.prototype.build = function () {
-        origBuild.apply(this, arguments);
+    // Використовуємо стандартний слухач Lampa для карток
+    Lampa.Listener.follow('card', function (e) {
+      if (e.type === 'build' && st.show_on_cards) {
         try {
-          // Прив'язка до основного елемента постера, а не .card__view, який Lampa періодично оновлює
-          var target = this.html;
-          var movie = this.data; 
-          if (movie && st.show_on_cards) {
-            applyBadgesToCard(movie, target);
-          }
-        } catch(e) {}
-      };
-    }
+          var movie = e.data;
+          var html = e.object.html;
+          applyBadgesToCard(movie, html);
+        } catch (err) {}
+      }
+    });
   }
 
   // Відображення в Full Card
@@ -496,7 +492,7 @@
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));\
     }\
     \
-    /* Оновлений дизайн: яскравий градієнт з неоновим ефектом */\
+    /* Оновлений яскравий дизайн */\
     .quality-badges-card {\
       position: absolute;\
       top: 32px; left: 6px;\
@@ -509,11 +505,11 @@
     .quality-badges-card .quality-badge {\
       height: calc(var(--svgq-badge-size) * 0.62);\
       padding: 0.15em 0.35em;\
-      background: linear-gradient(135deg, #ff6b00 0%, #ff1a00 100%);\
+      background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);\
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);\
       border: 1px solid rgba(255, 255, 255, 0.3);\
       border-radius: 0.35em;\
-      box-shadow: 0 4px 12px rgba(255, 85, 0, 0.5);\
+      box-shadow: 0 4px 12px rgba(0, 114, 255, 0.5);\
       transform: scale(0.9);\
       animation: qb_in_card 0.4s ease forwards;\
     }\
@@ -544,7 +540,7 @@
     Lampa.SettingsApi.addParam({
       component: 'interface',
       param: { type: 'button', component: 'svgq' },
-      field: { name: 'Мітки якості', description: 'SVG бейджі якості (працює з парсером)' },
+      field: { name: 'Мітки якості', description: 'SVG бейджі якості' },
       onChange: function () {
         Lampa.Settings.create('svgq', { template: 'settings_svgq', onBack: function () { Lampa.Settings.create('interface'); } });
       }
@@ -589,7 +585,7 @@
     Lampa.SettingsApi.addParam({
       component: 'svgq',
       param: { name: 'svgq_badge_size', type: 'input', values: '', default: String(st.badge_size) },
-      field: { name: 'Розмір міток (em)', description: 'Напр.: 2.0 або 1.4' },
+      field: { name: 'Розмір мітки (em)' },
       onChange: function (v) {
         var n = parseFloat(String(v).replace(',', '.'));
         if (isNaN(n) || !isFinite(n)) { toast('Некоректне число'); return; }
@@ -623,15 +619,11 @@
       injectStyleOnce();
       var root = $(e.object.activity.render());
       applyBadgesToFullCard(e.data.movie, root);
-    } catch (err) { console.error('[SVGQ] error:', err); }
+    } catch (err) { console.error('[SVGQ] error full:', err); }
   });
 
-  var patchTimer = setInterval(function() {
-    if (window.Lampa && window.Lampa.Card && window.Lampa.Card.prototype.build) {
-      patchLampaCard();
-      clearInterval(patchTimer);
-    }
-  }, 500);
+  // Запуск виводу на постерах при старті
+  patchLampaCard();
 
   Lampa.Listener.follow('app', function (ev) {
     if (ev.type === 'ready') {

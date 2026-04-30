@@ -1,8 +1,9 @@
+
 (function () {
     'use strict';
 
-    if (window.marks_module_v1) return;
-    window.marks_module_v1 = true;
+    if (window.marks_module_v2) return;
+    window.marks_module_v2 = true;
 
     if (typeof Lampa === 'undefined') {
         console.warn('Marks: Lampa not found');
@@ -32,6 +33,7 @@
     function fetchWithProxy(url, callback) {
         var proxies = [
             'https://api.allorigins.win/raw?url=',
+            'https://api.allorigins.win/get?url=',
             'https://cors-anywhere.herokuapp.com/',
             'https://thingproxy.freeboard.io/fetch/'
         ];
@@ -41,8 +43,20 @@
             xhr.open('GET', reqUrl, true);
             if (typeof setHeaders === 'function') setHeaders(xhr);
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) callback(null, xhr.responseText);
-                else onFail();
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    var body = xhr.responseText;
+                    try {
+                        var parsed = JSON.parse(body);
+                        if (parsed && parsed.contents !== undefined) {
+                            body = parsed.contents;
+                        }
+                    } catch (e) {
+                        // Если это не JSON-обертка
+                    }
+                    callback(null, body);
+                } else {
+                    onFail();
+                }
             };
             xhr.onerror = onFail;
             xhr.timeout = 10000;
@@ -54,7 +68,7 @@
             if (index >= proxies.length) return callback(new Error('All proxies failed'), null);
 
             var proxy = proxies[index];
-            var reqUrl = proxy === 'https://api.allorigins.win/raw?url='
+            var reqUrl = proxy.indexOf('?') >= 0
                 ? proxy + encodeURIComponent(url)
                 : proxy + url;
 
@@ -86,22 +100,23 @@
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
-        var year = String(raw).substr(0, 4);
+        var year = String(dateRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
 
-        var releaseDate = new Date(raw);
+        var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
-
+        
         fetchWithProxy(apiUrl, function (err, body) {
             if (err || !body) return callback(emptyMarksData());
 
             try {
                 var parsed = JSON.parse(body);
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
-
+                
                 var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                
                 var bestRes = 'SD';
                 var lock4k = false;
 
@@ -172,7 +187,7 @@
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
         fetchWithProxy(searchUrl, function (err, html) {
             if (err || !html) return callback(false);
-            var hasResults = html.indexOf('знайдено') >= 0 && html.indexOf('0 відповідей') < 0;
+            var hasResults = html.indexOf('Р·РЅР°Р№РґРµРЅРѕ') >= 0 && html.indexOf('0 РІС–РґРїРѕРІС–РґРµР№') < 0;
             callback(hasResults);
         });
     }
@@ -398,7 +413,7 @@
                 renderFullBadges(posterBadges, bestData, movie);
             });
         } else {
-            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rateline').first();
+            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rate-line, .full-start__rateline').first();
             if (!rateLine.length) return;
             if ($render.find('.likhtar-marks-row').length) return;
 
@@ -491,11 +506,14 @@
         if (!Lampa.SettingsApi || !Lampa.SettingsApi.addParam) return;
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
+        
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4'; // Изменена версия миграции
+        var migrateKey = 'marks_defaults_migrated_v4';
+
+        // Принудительно включаем плагин при старте
+        Lampa.Storage.set('marks_enabled', true);
 
         if (!Lampa.Storage.get(migrateKey, false)) {
-            Lampa.Storage.set('marks_enabled', true); // Теперь включено по умолчанию
             Lampa.Storage.set('marks_ua', true);
             Lampa.Storage.set('marks_en', true);
             Lampa.Storage.set('marks_4k', true);
@@ -566,10 +584,10 @@
     }
 
     function injectStyle() {
-        if (document.getElementById('likhtar-marks-style-v1')) return;
+        if (document.getElementById('likhtar-marks-style-v2')) return;
 
         var style = document.createElement('style');
-        style.id = 'likhtar-marks-style-v1';
+        style.id = 'likhtar-marks-style-v2';
         style.innerHTML = '\
             .likhtar-marks-container {\
                 position: absolute;\

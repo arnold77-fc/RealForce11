@@ -22,6 +22,7 @@
             empty: true,
             resolution: 'SD',
             ukr: false,
+            rus: false,
             eng: false,
             hdr: false,
             dolbyVision: false,
@@ -30,8 +31,9 @@
     }
 
     function fetchWithProxy(url, callback) {
+        // ВАШ ПРОКСИ ТЕПЕРЬ ОСНОВНОЙ
         var proxies = [
-            'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url=', // Ваш основной прокси
+            'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url=',
             'https://api.allorigins.win/get?url=',
             'https://cors-anywhere.herokuapp.com/',
             'https://thingproxy.freeboard.io/fetch/'
@@ -55,12 +57,12 @@
             if (index >= proxies.length) return callback(new Error('All proxies failed'), null);
 
             var proxy = proxies[index];
-            var reqUrl = (proxy.indexOf('allorigins') > -1 || proxy.indexOf('arnoldclasic6') > -1) 
-                ? proxy + encodeURIComponent(url) 
+            var reqUrl = (proxy.indexOf('allorigins') !== -1 || proxy.indexOf('arnoldclasic6') !== -1)
+                ? proxy + encodeURIComponent(url)
                 : proxy + url;
 
             request(reqUrl, function (xhr) {
-                if (proxy.indexOf('cors-anywhere') > -1) {
+                if (proxy.indexOf('cors-anywhere.herokuapp.com') !== -1) {
                     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                 }
             }, function () {
@@ -74,7 +76,6 @@
     }
 
     function getBestJacred(movie, callback) {
-        if (!movie || !movie.id) return callback(emptyMarksData());
         var cacheKey = 'marks_jacred_v1_' + movie.id;
         if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
@@ -101,16 +102,15 @@
 
             try {
                 var parsed = JSON.parse(body);
-                if (parsed && parsed.contents) parsed = JSON.parse(parsed.contents);
-                
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
-                var best = { resolution: 'SD', ukr: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                
+                var best = { resolution: 'SD', ukr: false, rus: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                
                 var bestRes = 'SD';
                 var lock4k = false;
 
                 results.forEach(function (item) {
-                    if (!item || !item.title) return;
-                    var t = String(item.title).toLowerCase();
+                    var t = String(item.title || '').toLowerCase();
                     if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0) return;
 
                     var is4k = (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0);
@@ -128,16 +128,16 @@
                 best.resolution = bestRes;
 
                 results.forEach(function (item) {
-                    if (!item || !item.title) return;
-                    var t = String(item.title).toLowerCase();
+                    var t = String(item.title || '').toLowerCase();
                     if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
+                    if (t.indexOf('rus') >= 0 || t.indexOf('russian') >= 0 || t.indexOf('рус') >= 0) best.rus = true;
                     if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
                     if (t.indexOf('hdr') >= 0) best.hdr = true;
                     if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
                     if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
-                best.empty = (best.resolution === 'SD' && !best.ukr && !best.hdr);
+                best.empty = (best.resolution === 'SD' && !best.ukr && !best.rus && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
                 Lampa.Storage.set(cacheKey, best);
@@ -150,7 +150,6 @@
     }
 
     function checkUafixBandera(movie, callback) {
-        if (!movie) return callback(null);
         var title = movie.title || movie.name || '';
         var origTitle = movie.original_title || movie.original_name || '';
         var imdbId = movie.imdb_id || '';
@@ -172,20 +171,20 @@
     }
 
     function checkUafixDirect(movie, callback) {
-        if (!movie) return callback(false);
         var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
         if (!query) return callback(false);
 
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
         fetchWithProxy(searchUrl, function (err, html) {
             if (err || !html) return callback(false);
-            var hasResults = html.indexOf('Р·РЅР°Р№РґРµРЅРѕ') >= 0 && html.indexOf('0 РІС–РґРїРѕРІС–РґРµР№') < 0;
+            var hasResults = html.indexOf('znaydeno') >= 0 || html.indexOf('результатів') >= 0;
             callback(hasResults);
         });
     }
 
     function checkUafix(movie, callback) {
         if (!movie || !movie.id) return callback(false);
+
         var key = 'marks_uafix_v1_' + movie.id;
         if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
 
@@ -203,14 +202,21 @@
     }
 
     function getMovieFromCard(cardNode) {
-        if (!cardNode) return null;
         var card = $(cardNode);
         return cardNode.heroMovieData || card.data('item') || cardNode.card_data || cardNode.item || null;
     }
 
     function extractRating(movie) {
         if (!movie) return 0;
-        var candidates = [movie.imdb_rating, movie.kp_rating, movie.vote_average, movie.rating, movie.rate];
+
+        var candidates = [
+            movie.imdb_rating,
+            movie.kp_rating,
+            movie.vote_average,
+            movie.rating,
+            movie.rate
+        ];
+
         for (var i = 0; i < candidates.length; i++) {
             if (candidates[i] === undefined || candidates[i] === null || candidates[i] === '') continue;
             var n = parseFloat(String(candidates[i]).replace(',', '.'));
@@ -220,23 +226,19 @@
     }
 
     function resolveMarks(movie, callback) {
-        if (!movie) return callback(emptyMarksData());
         getBestJacred(movie, function (data) {
             var bestData = data || emptyMarksData();
-            if (!bestData.ukr) {
-                checkUafix(movie, function (hasUafix) {
-                    if (hasUafix) {
-                        bestData.empty = false;
-                        bestData.ukr = true;
-                        if (!bestData.resolution || bestData.resolution === 'SD' || bestData.resolution === 'HD') {
-                            bestData.resolution = 'FHD';
-                        }
+
+            checkUafix(movie, function (hasUafix) {
+                if (hasUafix) {
+                    bestData.empty = false;
+                    bestData.ukr = true;
+                    if (!bestData.resolution || bestData.resolution === 'SD' || bestData.resolution === 'HD') {
+                        bestData.resolution = 'FHD';
                     }
-                    callback(bestData);
-                });
-            } else {
+                }
                 callback(bestData);
-            }
+            });
         });
     }
 
@@ -249,33 +251,32 @@
     }
 
     function renderCardBadges(container, data, movie, cardRoot) {
-        if (!container || !data) return;
         container.empty();
+
         if (!isSettingEnabled('marks_enabled', false)) return;
 
-        if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
-        if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
+        if (data.ukr && isSettingEnabled('marks_ua', true)) container.append(createCardBadge('ua', 'UA'));
+        if (data.rus) container.append(createCardBadge('ru', 'RU'));
+        if (data.eng && isSettingEnabled('marks_en', true)) container.append(createCardBadge('en', 'EN'));
 
         if (data.resolution && data.resolution !== 'SD') {
-            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) {
+            if (data.resolution === '4K' && isSettingEnabled('marks_4k', true)) {
                 container.append(createCardBadge('4k', '4K'));
-            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', false)) {
+            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', true)) {
                 container.append(createCardBadge('fhd', '1080p'));
-            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', false)) {
+            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', true)) {
                 container.append(createCardBadge('hd', '720p'));
-            } else if (isSettingEnabled('marks_fhd', false)) {
-                container.append(createCardBadge('hd', data.resolution));
             }
         }
 
-        if (isSettingEnabled('marks_hdr', false)) {
+        if (isSettingEnabled('marks_hdr', true)) {
             if (data.hdr) container.append(createCardBadge('hdr', 'HDR'));
             if (data.dolbyVision) container.append(createCardBadge('hdr', 'DV'));
             if (data.atmos) container.append(createCardBadge('atmos', 'Atmos'));
         }
 
         var hasCustomRating = false;
-        if (isSettingEnabled('marks_rating', false)) {
+        if (isSettingEnabled('marks_rating', true)) {
             var rating = extractRating(movie);
             if (rating > 0 && String(rating) !== '0.0') {
                 var rBadge = document.createElement('div');
@@ -293,9 +294,11 @@
     }
 
     function addMarksToCard(card, movie, viewSelector) {
-        if (!card || !movie || !isSettingEnabled('marks_enabled', false)) return;
+        if (!isSettingEnabled('marks_enabled', false)) return;
+
         var containerParent = viewSelector ? card.find(viewSelector).first() : card;
         if (!containerParent.length) containerParent = card;
+
         if (containerParent.css('position') === 'static') containerParent.css('position', 'relative');
 
         var marksContainer = containerParent.find('.likhtar-marks-container').first();
@@ -311,6 +314,7 @@
 
     function processCards(scopeNodes) {
         var cardsToProcess;
+
         if (scopeNodes && scopeNodes.length) {
             var cardNodes = [];
             for (var i = 0; i < scopeNodes.length; i++) {
@@ -329,6 +333,7 @@
             var card = $(this);
             var movie = getMovieFromCard(this);
             if (!(movie && movie.id && !movie.size)) return;
+
             card.addClass('likhtar-marks-processed');
             if (card.hasClass('hero-banner')) addMarksToCard(card, movie, null);
             else addMarksToCard(card, movie, '.card__view');
@@ -336,15 +341,17 @@
     }
 
     function renderFullBadges(container, data, movie) {
-        if (!container || !data) return;
         container.empty();
         if (!isSettingEnabled('marks_enabled', false)) {
             container.remove();
             return;
         }
 
-        if (data.ukr && isSettingEnabled('marks_ua', false)) {
+        if (data.ukr && isSettingEnabled('marks_ua', true)) {
             container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA+</div>');
+        }
+        if (data.rus) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ru">RU</div>');
         }
 
         if (data.resolution && data.resolution !== 'SD') {
@@ -353,21 +360,21 @@
             else if (resText === 'HD') resText = '720p';
 
             var showQuality = false;
-            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) showQuality = true;
-            else if ((data.resolution === 'FHD' || data.resolution === 'HD') && isSettingEnabled('marks_fhd', false)) showQuality = true;
+            if (data.resolution === '4K' && isSettingEnabled('marks_4k', true)) showQuality = true;
+            else if ((data.resolution === 'FHD' || data.resolution === 'HD') && isSettingEnabled('marks_fhd', true)) showQuality = true;
 
             if (showQuality) {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
             }
         }
 
-        if (isSettingEnabled('marks_hdr', false)) {
+        if (isSettingEnabled('marks_hdr', true)) {
             if (data.hdr) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
             if (data.dolbyVision) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">DV</div>');
             if (data.atmos) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Atmos</div>');
         }
 
-        if (isSettingEnabled('marks_rating', false)) {
+        if (isSettingEnabled('marks_rating', true)) {
             var rating = extractRating(movie);
             if (rating > 0 && String(rating) !== '0.0') {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--rating">&#9733;' + rating.toFixed(1) + '</div>');
@@ -377,9 +384,9 @@
 
     function injectFullCardMarks(movie, renderEl) {
         if (!movie || !movie.id || !renderEl) return;
+
         var $render = $(renderEl);
         if ($render.is('.applecation') || $render.find('.applecation').length) return;
-        if ($('.quality-badges-container').length) return;
 
         var poster = $render.find('.full-start__poster, .full-start-new__poster').first();
         if (poster.length) {
@@ -387,17 +394,9 @@
             poster.css('position', 'relative');
             var posterBadges = $('<div class="likhtar-marks-full"></div>');
             poster.append(posterBadges);
+
             resolveMarks(movie, function (bestData) {
                 renderFullBadges(posterBadges, bestData, movie);
-            });
-        } else {
-            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rate-line').first();
-            if (!rateLine.length) return;
-            if ($render.find('.likhtar-marks-row').length) return;
-            var qualityRow = $('<div class="likhtar-marks-row"></div>');
-            rateLine.append(qualityRow);
-            resolveMarks(movie, function (bestData) {
-                renderFullBadges(qualityRow, bestData, movie);
             });
         }
     }
@@ -405,6 +404,7 @@
     function initCardObserver() {
         var queued = false;
         var pendingRoots = [];
+
         function scheduleProcess(mutations) {
             if (mutations && mutations.length) {
                 for (var i = 0; i < mutations.length; i++) {
@@ -414,8 +414,10 @@
                     }
                 }
             }
+
             if (queued) return;
             queued = true;
+
             setTimeout(function () {
                 queued = false;
                 if (pendingRoots.length) {
@@ -427,31 +429,23 @@
                 }
             }, 80);
         }
+
         var observer = new MutationObserver(scheduleProcess);
         var target = document.getElementById('app') || document.body;
         observer.observe(target, { childList: true, subtree: true });
+
         processCards();
-        setTimeout(processCards, 400);
-        setTimeout(processCards, 1500);
     }
 
     function initFullCardObserver() {
         if (!Lampa.Listener || !Lampa.Listener.follow) return;
+
         Lampa.Listener.follow('full', function (e) {
             if (e.type !== 'complite') return;
             var movie = e.data && e.data.movie;
             var renderEl = e.object && e.object.activity && e.object.activity.render && e.object.activity.render();
             injectFullCardMarks(movie, renderEl);
         });
-        setTimeout(function () {
-            try {
-                var act = Lampa.Activity && Lampa.Activity.active && Lampa.Activity.active();
-                if (!act || act.component !== 'full') return;
-                var movie = act.card || act.movie;
-                var renderEl = act.activity && act.activity.render && act.activity.render();
-                injectFullCardMarks(movie, renderEl);
-            } catch (err) { }
-        }, 300);
     }
 
     function refreshAllMarks() {
@@ -461,117 +455,126 @@
             $('.likhtar-marks-full, .likhtar-marks-row').remove();
             processCards();
         } catch (e) { }
-        try {
-            var act = Lampa.Activity && Lampa.Activity.active && Lampa.Activity.active();
-            if (act && act.component === 'full') {
-                var movie = act.card || act.movie;
-                var renderEl = act.activity && act.activity.render && act.activity.render();
-                injectFullCardMarks(movie, renderEl);
-            }
-        } catch (e2) { }
     }
 
     function setupSettings() {
         if (!Lampa.SettingsApi || !Lampa.SettingsApi.addParam) return;
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
+        
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4';
-
-        if (!Lampa.Storage.get(migrateKey, false)) {
-            if (Lampa.Storage.get('marks_enabled', null) === null) Lampa.Storage.set('marks_enabled', false);
-            Lampa.Storage.set('marks_ua', true);
-            Lampa.Storage.set('marks_en', true);
-            Lampa.Storage.set('marks_4k', true);
-            Lampa.Storage.set('marks_fhd', true);
-            Lampa.Storage.set('marks_hdr', true);
-            Lampa.Storage.set('marks_rating', true);
-            Lampa.Storage.set(migrateKey, true);
-        }
-
-        var refreshBadgesNow = function () { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); };
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { type: 'title' },
-            field: { name: 'Мітки (Marks)' }
+            field: { name: 'Метки (Marks)' }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
-            param: { name: 'marks_enabled', type: 'trigger', default: false },
-            field: { name: 'Увімкнути модуль міток' },
-            onChange: refreshBadgesNow
+            param: { name: 'marks_enabled', type: 'trigger', default: true },
+            field: { name: 'Включить модуль меток' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_ua', type: 'trigger', default: true },
-            field: { name: 'Показувати мітку UA' },
-            onChange: refreshBadgesNow
+            field: { name: 'Показывать UA' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_en', type: 'trigger', default: true },
-            field: { name: 'Показувати мітку EN' },
-            onChange: refreshBadgesNow
+            field: { name: 'Показывать EN' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_4k', type: 'trigger', default: true },
-            field: { name: 'Показувати мітку 4K' },
-            onChange: refreshBadgesNow
+            field: { name: 'Показывать 4K' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_fhd', type: 'trigger', default: true },
-            field: { name: 'Показувати мітки 1080p / 720p' },
-            onChange: refreshBadgesNow
+            field: { name: 'Показывать 1080p / 720p' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: 'Показувати мітку HDR / DV / Atmos' },
-            onChange: refreshBadgesNow
+            field: { name: 'Показывать HDR / DV / Atmos' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
 
         Lampa.SettingsApi.addParam({
             component: targetComponent,
             param: { name: 'marks_rating', type: 'trigger', default: true },
-            field: { name: 'Показувати мітку рейтингу' },
-            onChange: refreshBadgesNow
+            field: { name: 'Показывать рейтинг' },
+            onChange: function() { if (window.MARKS_REFRESH) window.MARKS_REFRESH(); }
         });
     }
 
     function injectStyle() {
         if (document.getElementById('likhtar-marks-style-v1')) return;
+
         var style = document.createElement('style');
         style.id = 'likhtar-marks-style-v1';
         style.innerHTML = '\
-            .likhtar-marks-container { position: absolute; top: 2.8em; left: -0.2em; display: flex; flex-direction: column; gap: 0.2em; z-index: 20; pointer-events: none; }\
-            .hero-banner .likhtar-marks-container { top: 2.8em; left: 1.2em; gap: 0.3em; }\
-            .likhtar-marks-badge { padding: 0.32em 0.48em; font-size: 0.78em; font-weight: 800; line-height: 1; letter-spacing: 0.03em; border-radius: 0.32em; display: inline-flex; align-items: center; justify-content: center; align-self: flex-start; border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 1px 5px rgba(0,0,0,0.35); color: #fff; white-space: nowrap; }\
-            .likhtar-marks-badge--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-badge--en  { background: linear-gradient(135deg, #37474f, #78909c); border-color: rgba(120,144,156,0.4); }\
-            .likhtar-marks-badge--4k  { background: linear-gradient(135deg, #e65100, #ff9800); border-color: rgba(255,152,0,0.4); }\
-            .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
-            .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
-            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #424242, #757575); color: #fff; border-color: rgba(255,255,255,0.4); }\
-            .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
-            .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
-            .card.likhtar-marks-has-custom-rating .card__vote { display: none !important; }\
-            .likhtar-marks-full { position: absolute; top: 0.8em; right: 0.2em; display: flex; flex-direction: column; gap: 0.3em; z-index: 20; pointer-events: none; }\
-            .likhtar-marks-row { display: inline-flex; align-items: center; gap: 0.4em; flex-wrap: wrap; }\
-            .likhtar-marks-full-badge { display: inline-flex; align-items: center; justify-content: center; padding: 0.25em 0.5em; border-radius: 0.3em; border: 1px solid rgba(255,255,255,0.2); font-size: 0.75em; font-weight: 800; line-height: 1; letter-spacing: 0.04em; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }\
-            .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
-            .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
-            .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
+            .likhtar-marks-container {\
+                position: absolute;\
+                top: 2.8em;\
+                left: -0.2em;\
+                display: flex;\
+                flex-direction: column;\
+                gap: 0.2em;\
+                z-index: 20;\
+                pointer-events: none;\
+            }\
+            .likhtar-marks-badge {\
+                padding: 0.32em 0.48em;\
+                font-size: 0.78em;\
+                font-weight: 800;\
+                border-radius: 0.32em;\
+                display: inline-flex;\
+                border: 1px solid rgba(255,255,255,0.16);\
+                box-shadow: 0 1px 5px rgba(0,0,0,0.35);\
+                color: #fff;\
+            }\
+            .likhtar-marks-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); }\
+            .likhtar-marks-badge--ru { background: linear-gradient(135deg, #d32f2f, #ef5350); }\
+            .likhtar-marks-badge--en { background: linear-gradient(135deg, #37474f, #78909c); }\
+            .likhtar-marks-badge--4k { background: linear-gradient(135deg, #e65100, #ff9800); }\
+            .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); }\
+            .likhtar-marks-badge--hd { background: linear-gradient(135deg, #1b5e20, #66bb6a); }\
+            .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; }\
+            .likhtar-marks-badge--rating { background: #1a1a2e; color: #ffd700; }\
+            .likhtar-marks-full {\
+                position: absolute;\
+                top: 0.8em;\
+                right: 0.2em;\
+                display: flex;\
+                flex-direction: column;\
+                gap: 0.3em;\
+                z-index: 20;\
+            }\
+            .likhtar-marks-full-badge {\
+                padding: 0.25em 0.5em;\
+                border-radius: 0.3em;\
+                border: 1px solid rgba(255,255,255,0.2);\
+                font-size: 0.75em;\
+                font-weight: 800;\
+                color: #fff;\
+            }\
+            .likhtar-marks-full-badge--ua { background: #1565c0; }\
+            .likhtar-marks-full-badge--ru { background: #d32f2f; }\
+            .likhtar-marks-full-badge--quality { background: #2e7d32; }\
+            .likhtar-marks-full-badge--hdr { background: #512da8; }\
         ';
         document.head.appendChild(style);
     }
@@ -582,10 +585,8 @@
         window.MARKS_REFRESH = refreshAllMarks;
         initCardObserver();
         initFullCardObserver();
-        setTimeout(refreshAllMarks, 50);
     }
 
     if (window.appready) runInit();
-    else if (Lampa.Listener && Lampa.Listener.follow) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') runInit(); });
-    else setTimeout(runInit, 1200);
+    else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') runInit(); });
 })();

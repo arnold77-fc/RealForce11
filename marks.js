@@ -315,8 +315,13 @@
             }
         }
 
-        if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append(createCardBadge('hdr', data.dolbyVision ? 'DV' : 'HDR'));
+        if (isSettingEnabled('marks_hdr', false)) {
+            if (data.hdr) {
+                container.append(createCardBadge('hdr', 'HDR'));
+            }
+            if (data.dolbyVision) {
+                container.append(createCardBadge('dv', 'DV'));
+            }
         }
 
         var hasCustomRating = false;
@@ -412,8 +417,13 @@
             }
         }
 
-        if (data.hdr && isSettingEnabled('marks_hdr', false)) {
-            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">' + (data.dolbyVision ? 'Dolby Vision' : 'HDR') + '</div>');
+        if (isSettingEnabled('marks_hdr', false)) {
+            if (data.hdr) {
+                container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
+            }
+            if (data.dolbyVision) {
+                container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--dv">Dolby Vision</div>');
+            }
         }
 
         if (isSettingEnabled('marks_rating', false)) {
@@ -519,7 +529,6 @@
 
         if (!enabled) {
             try {
-                // Hide/remove marks from this module
                 $('.likhtar-marks-container, .likhtar-marks-full, .likhtar-marks-row').remove();
                 $('.card').removeClass('likhtar-marks-processed likhtar-marks-active likhtar-marks-has-custom-rating');
                 $('body').removeClass('marks-hide-external-badges');
@@ -556,8 +565,6 @@
         var targetComponent = 'interface';
         var migrateKey = 'marks_defaults_migrated_v4';
 
-        // One-time migration: keep module switch OFF by default,
-        // but enable all mark types so they appear immediately when turned ON.
         if (!Lampa.Storage.get(migrateKey, false)) {
             var enabledRaw = Lampa.Storage.get('marks_enabled', null);
             if (enabledRaw === null || enabledRaw === undefined || enabledRaw === '' || String(enabledRaw).trim().toLowerCase() === 'null') {
@@ -649,7 +656,7 @@
         style.innerHTML = '\
             .likhtar-marks-container {\
                 position: absolute;\
-                top: 1.4em;\
+                top: 2.8em;\
                 left: -0.2em;\
                 display: flex;\
                 flex-direction: column;\
@@ -658,7 +665,7 @@
                 pointer-events: none;\
             }\
             .hero-banner .likhtar-marks-container {\
-                top: 1.5em;\
+                top: 2.8em;\
                 left: 1.2em;\
                 gap: 0.3em;\
             }\
@@ -684,6 +691,7 @@
             .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
             .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
             .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-badge--dv  { background: linear-gradient(135deg, #311b92, #7c4dff); color: #fff; border-color: rgba(124,77,255,0.4); }\
             .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
             .card.likhtar-marks-active .card__type,\
@@ -721,7 +729,8 @@
             }\
             .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
             .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
-            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
+            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-full-badge--dv  { background: linear-gradient(135deg, #311b92, #7c4dff); color: #fff; border-color: rgba(124,77,255,0.4); }\
             .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
             body.marks-hide-external-badges .likhtar-marks-container,\
             body.marks-hide-external-badges .likhtar-marks-full,\
@@ -743,7 +752,6 @@
         window.MARKS_REFRESH = refreshAllMarks;
         initCardObserver();
         initFullCardObserver();
-        // Sync visual state on startup (important after hot-reload / cached DOM).
         setTimeout(refreshAllMarks, 50);
     }
 

@@ -20,7 +20,7 @@
     function emptyMarksData() {
         return {
             empty: true,
-            resolution: 'SD',
+            resolution: null,
             ukr: false,
             rus: false,
             eng: false,
@@ -88,10 +88,10 @@
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
-        var year = String(varRaw).substr(0, 4);
+        var year = String(dateRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
 
-        var releaseDate = new Date(varRaw);
+        var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
@@ -103,9 +103,9 @@
                 var parsed = JSON.parse(body);
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
                 
-                var best = { resolution: 'SD', ukr: false, rus: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
+                var best = { resolution: null, ukr: false, rus: false, eng: false, hdr: false, dolbyVision: false, atmos: false };
                 
-                var bestRes = 'SD';
+                var bestRes = null;
                 var lock4k = false;
 
                 results.forEach(function (item) {
@@ -120,8 +120,8 @@
                         bestRes = '4K';
                         lock4k = true;
                     } else if (!lock4k) {
-                        if (isFhd) bestRes = 'FHD';
-                        else if (isHd && bestRes === 'SD') bestRes = 'HD';
+                        if (isFhd && bestRes !== '4K') bestRes = 'FHD';
+                        else if (isHd && bestRes !== '4K' && bestRes !== 'FHD') bestRes = 'HD';
                     }
                 });
                 best.resolution = bestRes;
@@ -136,7 +136,7 @@
                     if (t.indexOf('atmos') >= 0) best.atmos = true;
                 });
 
-                best.empty = (best.resolution === 'SD' && !best.ukr && !best.rus && !best.eng && !best.hdr);
+                best.empty = (best.resolution === null && !best.ukr && !best.rus && !best.eng && !best.hdr);
                 best._ts = Date.now();
                 jacredCache[cacheKey] = best;
                 Lampa.Storage.set(cacheKey, best);
@@ -497,7 +497,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4'; // Increased migration key so that RU is added
+        var migrateKey = 'marks_defaults_migrated_v5';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
@@ -677,13 +677,17 @@
         setTimeout(refreshAllMarks, 50);
     }
 
+    function appReadyCheck() {
+        if (typeof Lampa !== 'undefined') {
+            runInit();
+        } else {
+            setTimeout(appReadyCheck, 200);
+        }
+    }
+
     if (window.appready) {
         runInit();
-    } else if (Lampa.Listener && Lampa.Listener.follow) {
-        Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') runInit();
-        });
     } else {
-        setTimeout(runInit, 1200);
+        appReadyCheck();
     }
 })();

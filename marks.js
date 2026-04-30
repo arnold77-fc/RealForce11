@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.marks_module_v2) return;
-    window.marks_module_v2 = true;
+    if (window.marks_module_v3) return;
+    window.marks_module_v3 = true;
 
     if (typeof Lampa === 'undefined') {
         console.warn('Marks: Lampa not found');
@@ -47,7 +47,7 @@
                 else onFail();
             };
             xhr.onerror = onFail;
-            xhr.timeout = 10000;
+            xhr.timeout = 8000; // Снизил таймаут, чтобы карточки грузились быстрее
             xhr.ontimeout = onFail;
             xhr.send();
         }
@@ -100,7 +100,7 @@
     }
 
     function searchMovieQualities(movie, callback) {
-        var cacheKey = 'marks_qualities_v2_' + movie.id;
+        var cacheKey = 'marks_qualities_v3_' + movie.id;
         if (qualitiesCache[cacheKey]) return callback(qualitiesCache[cacheKey]);
 
         try {
@@ -120,8 +120,10 @@
         var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
+        // Расширенный список API (добавлен maxvol)
         var apisToTry = [
             { url: 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year, type: 'jacred' },
+            { url: 'https://maxvol.pro/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year, type: 'maxvol' },
             { url: 'https://bitsearch.to/api/v1/search?q=' + encodeURIComponent(title + ' ' + year), type: 'bitsearch' }
         ];
 
@@ -143,6 +145,7 @@
         }
 
         function checkNextAPI() {
+            // Если нашли полный "джекпот", прекращаем спамить запросами
             if (best.resolution === '4K' && best.ru && best.ukr && best.eng) {
                 return finish();
             }
@@ -156,7 +159,7 @@
                     try {
                         var parsed = JSON.parse(body);
                         var results = [];
-                        if (api.type === 'jacred') results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
+                        if (api.type === 'jacred' || api.type === 'maxvol') results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
                         else if (api.type === 'bitsearch') results = parsed.data || [];
                         else if (api.type === 'apibay') results = Array.isArray(parsed) ? parsed : [];
 
@@ -173,6 +176,7 @@
         checkNextAPI();
     }
 
+    // 1-й слой Укр. парсеров: Bandera/UaFix
     function checkUafixBandera(movie, callback) {
         var title = movie.title || movie.name || '';
         var origTitle = movie.original_title || movie.original_name || '';
@@ -186,7 +190,7 @@
         url += '&type=' + type;
 
         var network = new Lampa.Reguest();
-        network.timeout(5000);
+        network.timeout(4000);
         network.silent(url, function (json) {
             callback(Boolean(json && json.ok && json.items && json.items.length > 0));
         }, function () {
@@ -194,14 +198,28 @@
         });
     }
 
+    // 2-й слой Укр. парсеров: Прямой поиск UaFix
     function checkUafixDirect(movie, callback) {
         var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
         if (!query) return callback(false);
 
         var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
         fetchWithProxy(searchUrl, function (err, html) {
-            if (err || !html) return callback(false);
+            if (err || !html) return callback(null);
             var hasResults = html.indexOf('знайдено') >= 0 && html.indexOf('0 відповідей') < 0;
+            callback(hasResults);
+        });
+    }
+
+    // 3-й слой Укр. парсеров: Прямой поиск UaKino
+    function checkUaKino(movie, callback) {
+        var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
+        if (!query) return callback(false);
+
+        var searchUrl = 'https://uakino.club/search?q=' + encodeURIComponent(query);
+        fetchWithProxy(searchUrl, function (err, html) {
+            if (err || !html) return callback(false);
+            var hasResults = html.indexOf('movie-item') >= 0 || html.indexOf('film-list') >= 0;
             callback(hasResults);
         });
     }
@@ -209,19 +227,25 @@
     function checkUafix(movie, callback) {
         if (!movie || !movie.id) return callback(false);
 
-        var key = 'marks_uafix_v1_' + movie.id;
+        var key = 'marks_uafix_v3_' + movie.id;
         if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
 
+        // Каскадный поиск по украинским базам
         checkUafixBandera(movie, function (result) {
-            if (result !== null) {
-                uafixCache[key] = result;
-                callback(result);
-            } else {
-                checkUafixDirect(movie, function (found) {
-                    uafixCache[key] = found;
-                    callback(found);
-                });
+            if (result === true) {
+                uafixCache[key] = true;
+                return callback(true);
             }
+            checkUafixDirect(movie, function (found) {
+                if (found === true) {
+                    uafixCache[key] = true;
+                    return callback(true);
+                }
+                checkUaKino(movie, function(uakinoFound) {
+                    uafixCache[key] = uakinoFound;
+                    callback(uakinoFound);
+                });
+            });
         });
     }
 

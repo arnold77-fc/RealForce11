@@ -43,8 +43,18 @@
             xhr.open('GET', reqUrl, true);
             if (typeof setHeaders === 'function') setHeaders(xhr);
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) callback(null, xhr.responseText);
-                else onFail();
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    var body = xhr.responseText;
+                    if (reqUrl.indexOf('allorigins.win') >= 0) {
+                        try {
+                            var parsed = JSON.parse(body);
+                            if (parsed.contents) body = parsed.contents;
+                        } catch (e) { }
+                    }
+                    callback(null, body);
+                } else {
+                    onFail();
+                }
             };
             xhr.onerror = onFail;
             xhr.timeout = 10000;
@@ -89,6 +99,7 @@
 
         var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
         var dateRaw = movie.release_date || movie.first_air_date || '';
+        var dateRaw = movie.release_date || movie.first_air_date || '';
         var year = String(dateRaw).substr(0, 4);
         if (!title || !year) return callback(emptyMarksData());
 
@@ -96,16 +107,16 @@
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
         var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
-        
+
         fetchWithProxy(apiUrl, function (err, body) {
             if (err || !body) return callback(emptyMarksData());
 
             try {
                 var parsed = JSON.parse(body);
                 var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
-                
+
                 var best = { resolution: 'SD', ukr: false, eng: false, rus: false, hdr: false, dolbyVision: false, atmos: false };
-                
+
                 // --- ЖЕСТКАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ КАЧЕСТВА ---
                 var bestRes = 'SD';
                 var lock4k = false;
@@ -119,7 +130,6 @@
                     var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
 
                     if (is4k) {
-                        bestRes = '4K'; // bestRes
                         bestRes = '4K';
                         lock4k = true;
                     } else if (!lock4k) {

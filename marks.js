@@ -1,618 +1,690 @@
 (function () {
     'use strict';
 
-    /**
-     * ====================================================================================
-     * MODULE: Lampa Marks Mod
-     * Version: 4.2.1 (Full Monolith)
-     * Compatibility: Lampa Platform
-     * Description: Displays full array of content tags on Lampa UI cards.
-     * ====================================================================================
-     */
-
-    // Ensure single execution
-    if (window.lampa_marks_full_monolith) return;
-    window.lampa_marks_full_monolith = true;
+    if (window.marks_module_v1) return;
+    window.marks_module_v1 = true;
 
     if (typeof Lampa === 'undefined') {
-        console.warn('Lampa Marks: Lampa library not found. Stopping initialization.');
+        console.warn('Marks: Lampa not found');
         return;
     }
 
-    // --- Caches and global state objects ---
-    var jacred_cache = {};
-    var uafix_cache = {};
-    var search_results = {};
-    var timers = {};
-    var network = new Lampa.Reguest();
+    var jacredCache = {};
+    var uafixCache = {};
 
-    /**
-     * List of available proxies, starting with the primary one as requested.
-     */
-    var proxy_list = [
-        'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url=',
-        'https://api.allorigins.win/get?url=',
-        'https://cors-anywhere.herokuapp.com/',
-        'https://thingproxy.freeboard.io/fetch/'
-    ];
-
-    // --- UTILITY FUNCTIONS ---
-
-    /**
-     * Gets setting value from storage.
-     * @param {string} key 
-     * @param {any} default_val 
-     * @returns {boolean}
-     */
-    function getSetting(key, default_val) {
-        var val = Lampa.Storage.get(key, default_val);
-        return val === true || val === 'true' || val === 1 || val === '1';
+    function isSettingEnabled(key, defaultVal) {
+        var val = Lampa.Storage.get(key, defaultVal);
+        return val !== false && val !== 'false' && val !== 0 && val !== '0';
     }
 
-    /**
-     * Checks if the item is a valid object.
-     * @param {any} item 
-     * @returns {boolean}
-     */
-    function isObject(item) {
-        return (item && typeof item === 'object' && !Array.isArray(item));
+    function emptyMarksData() {
+        return {
+            empty: true,
+            resolution: 'SD',
+            ukr: false,
+            eng: false,
+            rus: false,
+            hdr: false,
+            dolbyVision: false,
+            atmos: false
+        };
     }
 
-    /**
-     * Cleans the title by removing all punctuation and unnecessary spaces.
-     * @param {string} str 
-     * @returns {string}
-     */
-    function cleanTitle(str) {
-        if (!str) return '';
-        return str
-            .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, " ")
-            .replace(/\s{2,}/g, " ")
-            .toLowerCase()
-            .trim();
-    }
+    function fetchWithProxy(url, callback) {
+        var proxies = [
+            'https://my-lampa-proxy1.arnoldclasic6.workers.dev/?url=',
+            'https://api.allorigins.win/get?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://thingproxy.freeboard.io/fetch/'
+        ];
 
-    // --- NETWORK AND PROXY MANAGEMENT ---
-
-    /**
-     * Performs an HTTP request with automatic fallback to proxy list.
-     * @param {string} url 
-     * @param {function} callback 
-     * @param {function} error_cb 
-     */
-    function requestWithProxy(url, callback, error_cb) {
-        function tryRequest(index) {
-            if (index >= proxy_list.length) {
-                if (error_cb) error_cb();
-                return;
-            }
-
-            var current_proxy = proxy_list[index];
-            var final_url = (current_proxy.indexOf('?url=') !== -1) ? current_proxy + encodeURIComponent(url) : current_proxy + url;
-
+        function request(reqUrl, setHeaders, onFail) {
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', final_url, true);
-
-            if (current_proxy.indexOf('herokuapp') !== -1) {
-                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            }
-
+            xhr.open('GET', reqUrl, true);
+            if (typeof setHeaders === 'function') setHeaders(xhr);
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    var resp = xhr.responseText;
-                    if (current_proxy.indexOf('allorigins') !== -1) {
-                        try {
-                            resp = JSON.parse(resp).contents;
-                        } catch (e) {
-                            // Suppress parse errors
-                        }
-                    }
-                    callback(resp);
-                } else {
-                    tryRequest(index + 1);
-                }
+                if (xhr.status >= 200 && xhr.status < 300) callback(null, xhr.responseText);
+                else onFail();
             };
-
-            xhr.onerror = function () {
-                tryRequest(index + 1);
-            };
-
-            xhr.timeout = 15000;
-            xhr.ontimeout = function () {
-                tryRequest(index + 1);
-            };
-
+            xhr.onerror = onFail;
+            xhr.timeout = 10000;
+            xhr.ontimeout = onFail;
             xhr.send();
         }
 
-        // Fast direct request first
-        var direct = new XMLHttpRequest();
-        direct.open('GET', url, true);
-        direct.timeout = 2500;
+        function tryProxy(index) {
+            if (index >= proxies.length) return callback(new Error('All proxies failed'), null);
 
-        direct.onload = function () {
-            if (direct.status === 200) {
-                callback(direct.responseText);
-            } else {
-                tryRequest(0);
-            }
-        };
+            var proxy = proxies[index];
+            var reqUrl = proxy === 'https://api.allorigins.win/get?url='
+                ? proxy + encodeURIComponent(url)
+                : proxy + url;
 
-        direct.onerror = function () {
-            tryRequest(0);
-        };
-
-        direct.send();
-    }
-
-    // --- DATA ANALYSIS AND PARSING ---
-
-    /**
-     * Analyzes torrent items and extracts resolution and tracks data.
-     * @param {Array} torrents 
-     * @returns {Object}
-     */
-    function analyzeTorrents(torrents) {
-        var data = {
-            res: 'SD',
-            ua: false,
-            ru: false, // Russian language tag
-            en: false,
-            hdr: false,
-            dv: false,
-            atmos: false,
-            found: false
-        };
-
-        if (!torrents || !Array.isArray(torrents)) return data;
-
-        torrents.forEach(function (item) {
-            var title = (item.title || item.name || '').toLowerCase();
-
-            // Exclude camrips and other trash
-            if (
-                title.indexOf('cam') >= 0 ||
-                title.indexOf('ts') >= 0 ||
-                title.indexOf('telesync') >= 0 ||
-                title.indexOf('pdw') >= 0
-            ) {
-                return;
-            }
-
-            data.found = true;
-
-            // Resolution evaluation
-            if (
-                title.indexOf('2160') >= 0 ||
-                title.indexOf('4k') >= 0 ||
-                title.indexOf('uhd') >= 0 ||
-                title.indexOf('sdr') >= 0
-            ) {
-                data.res = '4K';
-            } else if (data.res !== '4K') {
-                if (title.indexOf('1080') >= 0 || title.indexOf('fhd') >= 0 || title.indexOf('bdremux') >= 0) {
-                    data.res = 'FHD';
-                } else if (title.indexOf('720') >= 0 || title.indexOf('hd') >= 0) {
-                    if (data.res === 'SD') data.res = 'HD';
+            request(reqUrl, function (xhr) {
+                if (proxy === 'https://cors-anywhere.herokuapp.com/') {
+                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                 }
-            }
-
-            // Ukrainian language detection
-            if (
-                title.indexOf('ukr') >= 0 ||
-                title.indexOf('ua ') >= 0 ||
-                title.indexOf('.ua') >= 0 ||
-                title.indexOf('ukrainian') >= 0
-            ) {
-                data.ua = true;
-            }
-
-            // Russian language detection (Extended tags)
-            var ru_tags = ['rus', 'ru ', '.ru', 'russian', 'dub', 'mvo', 'lvo', 'avo', 'itunes', 'line', 'звук', 'dts-ru'];
-            ru_tags.forEach(function (tag) {
-                if (title.indexOf(tag) >= 0) data.ru = true;
+            }, function () {
+                tryProxy(index + 1);
             });
+        }
 
-            // English language detection
-            if (
-                title.indexOf('eng') >= 0 ||
-                title.indexOf('english') >= 0 ||
-                title.indexOf('original') >= 0
-            ) {
-                data.en = true;
-            }
-
-            // Video technologies analysis
-            if (title.indexOf('hdr') >= 0 || title.indexOf('high dynamic range') >= 0) {
-                data.hdr = true;
-            }
-            if (
-                title.indexOf('dv') >= 0 ||
-                title.indexOf('dolby vision') >= 0 ||
-                title.indexOf('.dv.') >= 0 ||
-                title.indexOf('dovi') >= 0
-            ) {
-                data.dv = true;
-            }
-            if (title.indexOf('atmos') >= 0 || title.indexOf('truehd') >= 0) {
-                data.atmos = true;
-            }
+        request(url, null, function () {
+            tryProxy(0);
         });
-
-        return data;
     }
 
-    /**
-     * Performs multi-source search (Jacred, Torlook, Uafix).
-     * @param {Object} movie 
-     * @param {function} callback 
-     */
-    function getMovieData(movie, callback) {
-        var id = movie.id;
-        var cache_key = 'marks_full_cache_' + id;
-
-        if (jacred_cache[cache_key]) {
-            return callback(jacred_cache[cache_key]);
-        }
+    function getBestJacred(movie, callback) {
+        var cacheKey = 'marks_jacred_v1_' + movie.id;
+        if (jacredCache[cacheKey]) return callback(jacredCache[cacheKey]);
 
         try {
-            var local = Lampa.Storage.get(cache_key, '{}');
-            // Уменьшено время кэширования до 15 минут (1000 * 60 * 15)
-            if (local && local.timestamp && (Date.now() - local.timestamp < 1000 * 60 * 15)) {
-                jacred_cache[cache_key] = local.data;
-                return callback(local.data);
+            var raw = Lampa.Storage.get(cacheKey, '');
+            // Уменьшено время кэширования до 10 минут
+            if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 10 * 60 * 1000)) {
+                jacredCache[cacheKey] = raw;
+                return callback(raw);
             }
-        } catch (e) {}
+        } catch (e) { }
 
-        var title = cleanTitle(movie.original_title || movie.title || movie.name);
-        var year = (movie.release_date || movie.first_air_date || '0000').substring(0, 4);
+        var title = (movie.original_title || movie.title || movie.name || '').toLowerCase().trim();
+        var dateRaw = movie.release_date || movie.first_air_date || '';
+        var year = String(dateRaw).substr(0, 4);
+        if (!title || !year) return callback(emptyMarksData());
 
-        if (!title || year === '0000') {
-            return callback({ found: false, res: 'SD' });
-        }
+        var releaseDate = new Date(dateRaw);
+        if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
-        // 1. Jacred source search
-        var jac_url = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
+        var apiUrl = 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year;
+        
+        fetchWithProxy(apiUrl, function (err, body) {
+            if (err || !body) return callback(emptyMarksData());
 
-        requestWithProxy(
-            jac_url,
-            function (resp) {
-                var torrents = [];
-                try {
-                    var json = JSON.parse(resp);
-                    torrents = Array.isArray(json) ? json : (json.torrents || []);
-                } catch (e) {}
+            try {
+                var parsed = JSON.parse(body);
+                var results = Array.isArray(parsed) ? parsed : (parsed.torrents || []);
+                
+                var best = { resolution: 'SD', ukr: false, eng: false, rus: false, hdr: false, dolbyVision: false, atmos: false };
+                
+                var bestRes = 'SD';
+                var lock4k = false;
 
-                if (torrents.length > 0) {
-                    var analyzed = analyzeTorrents(torrents);
-                    finalize(analyzed);
-                } else {
-                    // 2. Torlook source search
-                    var torlook_url = 'https://api.torlook.info/api/search/torrents?q=' + encodeURIComponent(title + ' ' + year);
+                results.forEach(function (item) {
+                    var t = String(item.title || '').toLowerCase();
+                    if (t.indexOf('cam') >= 0 || t.indexOf('ts') >= 0) return;
 
-                    requestWithProxy(
-                        torlook_url,
-                        function (t_resp) {
-                            var t_torrents = [];
-                            try {
-                                var t_json = JSON.parse(t_resp);
-                                t_torrents = t_json.torrents || t_json || [];
-                            } catch (e) {}
+                    var is4k = (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0);
+                    var isFhd = (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0);
+                    var isHd = (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0);
 
-                            var analyzed = analyzeTorrents(t_torrents);
-                            finalize(analyzed);
-                        },
-                        function () {
-                            finalize({ found: false, res: 'SD' });
-                        }
-                    );
-                }
-            },
-            function () {
-                finalize({ found: false, res: 'SD' });
-            }
-        );
-
-        function finalize(data) {
-            // 3. Uafix check if UA is missing
-            if (!data.ua) {
-                var uafix_url = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(title);
-
-                requestWithProxy(
-                    uafix_url,
-                    function (h_resp) {
-                        if (h_resp && h_resp.indexOf('0 РІС–РґРїРѕРІС–РґРµР№') < 0 && h_resp.indexOf('Р·РЅР°Р№РґРµРЅРѕ') >= 0) {
-                            data.ua = true;
-                            data.found = true;
-                            if (data.res === 'SD') data.res = 'FHD';
-                        }
-                        saveAndReturn(data);
-                    },
-                    function () {
-                        saveAndReturn(data);
+                    if (is4k) {
+                        bestRes = '4K';
+                        lock4k = true;
+                    } else if (!lock4k) {
+                        if (isFhd) bestRes = 'FHD';
+                        else if (isHd && bestRes === 'SD') bestRes = 'HD';
                     }
-                );
-            } else {
-                saveAndReturn(data);
-            }
-        }
+                });
+                best.resolution = bestRes;
 
-        function saveAndReturn(data) {
-            jacred_cache[cache_key] = data;
-            Lampa.Storage.set(cache_key, { data: data, timestamp: Date.now() });
-            callback(data);
-        }
+                results.forEach(function (item) {
+                    var t = String(item.title || '').toLowerCase();
+                    if (t.indexOf('ukr') >= 0 || t.indexOf('ua') >= 0) best.ukr = true;
+                    if (t.indexOf('eng') >= 0 || t.indexOf('english') >= 0) best.eng = true;
+                    if (t.indexOf('rus') >= 0 || t.indexOf('рус') >= 0) best.rus = true; // Метка русской озвучки
+                    if (t.indexOf('hdr') >= 0) best.hdr = true;
+                    if (t.indexOf('dolby vision') >= 0 || t.indexOf('dv') >= 0) best.dolbyVision = true;
+                    if (t.indexOf('atmos') >= 0) best.atmos = true;
+                });
+
+                best.empty = (best.resolution === 'SD' && !best.ukr && !best.rus && !best.hdr);
+                best._ts = Date.now();
+                jacredCache[cacheKey] = best;
+                Lampa.Storage.set(cacheKey, best);
+
+                callback(best);
+            } catch (e5) {
+                callback(emptyMarksData());
+            }
+        });
     }
 
-    // --- BADGE RENDERING AND CARD INTERFACES ---
+    function checkUafixBandera(movie, callback) {
+        var title = movie.title || movie.name || '';
+        var origTitle = movie.original_title || movie.original_name || '';
+        var imdbId = movie.imdb_id || '';
+        var type = movie.name ? 'series' : 'movie';
 
-    function createBadge(type, text) {
+        var url = 'https://banderabackend.lampame.v6.rocks/api/v2/search?source=uaflix';
+        if (title) url += '&title=' + encodeURIComponent(title);
+        if (origTitle) url += '&original_title=' + encodeURIComponent(origTitle);
+        if (imdbId) url += '&imdb_id=' + encodeURIComponent(imdbId);
+        url += '&type=' + type;
+
+        var network = new Lampa.Reguest();
+        network.timeout(5000);
+        network.silent(url, function (json) {
+            callback(Boolean(json && json.ok && json.items && json.items.length > 0));
+        }, function () {
+            callback(null);
+        });
+    }
+
+    function checkUafixDirect(movie, callback) {
+        var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
+        if (!query) return callback(false);
+
+        var searchUrl = 'https://uafix.net/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
+        fetchWithProxy(searchUrl, function (err, html) {
+            if (err || !html) return callback(false);
+            var hasResults = html.indexOf('Р·РЅР°Р№РґРµРЅРѕ') >= 0 && html.indexOf('0 РІС–РґРїРѕРІС–РґРµ\u0439') < 0;
+            callback(hasResults);
+        });
+    }
+
+    function checkUafix(movie, callback) {
+        if (!movie || !movie.id) return callback(false);
+
+        var key = 'marks_uafix_v1_' + movie.id;
+        if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
+
+        checkUafixBandera(movie, function (result) {
+            if (result !== null) {
+                uafixCache[key] = result;
+                callback(result);
+            } else {
+                checkUafixDirect(movie, function (found) {
+                    uafixCache[key] = found;
+                    callback(found);
+                });
+            }
+        });
+    }
+
+    function getMovieFromCard(cardNode) {
+        var card = $(cardNode);
+        return cardNode.heroMovieData || card.data('item') || cardNode.card_data || cardNode.item || null;
+    }
+
+    function extractRating(movie) {
+        if (!movie) return 0;
+
+        var candidates = [
+            movie.imdb_rating,
+            movie.kp_rating,
+            movie.vote_average,
+            movie.rating,
+            movie.rate
+        ];
+
+        for (var i = 0; i < candidates.length; i++) {
+            if (candidates[i] === undefined || candidates[i] === null || candidates[i] === '') continue;
+            var n = parseFloat(String(candidates[i]).replace(',', '.'));
+            if (!isNaN(n) && n > 0) return n;
+        }
+        return 0;
+    }
+
+    function resolveMarks(movie, callback) {
+        getBestJacred(movie, function (data) {
+            var bestData = data || emptyMarksData();
+
+            // Проверка по другим источникам выполняется всегда, не только при отсутствии украинского
+            checkUafix(movie, function (hasUafix) {
+                if (hasUafix) {
+                    bestData.empty = false;
+                    bestData.ukr = true;
+                    if (!bestData.resolution || bestData.resolution === 'SD' || bestData.resolution === 'HD') {
+                        bestData.resolution = 'FHD';
+                    }
+                }
+                callback(bestData);
+            });
+        });
+    }
+
+    function createCardBadge(cssClass, label) {
         var badge = document.createElement('div');
-        badge.className = 'lampa-mark lampa-mark--' + type;
-        badge.textContent = text;
+        badge.classList.add('likhtar-marks-badge');
+        badge.classList.add('likhtar-marks-badge--' + cssClass);
+        badge.textContent = label;
         return badge;
     }
 
-    function applyMarks(container, movie, data) {
+    function renderCardBadges(container, data, movie, cardRoot) {
         container.empty();
 
-        // Verification to make sure marks are enabled
-        if (!getSetting('marks_enabled', true)) return;
+        if (!isSettingEnabled('marks_enabled', false)) return;
 
-        // Render UA
-        if (data.ua && getSetting('marks_ua', true)) {
-            container.append(createBadge('ua', 'UA'));
-        }
+        if (data.ukr && isSettingEnabled('marks_ua', false)) container.append(createCardBadge('ua', 'UA'));
+        if (data.rus && isSettingEnabled('marks_rus', false)) container.append(createCardBadge('rus', 'RU'));
+        if (data.eng && isSettingEnabled('marks_en', false)) container.append(createCardBadge('en', 'EN'));
 
-        // Render RU
-        if (data.ru && getSetting('marks_ru', true)) {
-            container.append(createBadge('ru', 'RU'));
-        }
-
-        // Render EN
-        if (data.en && getSetting('marks_en', false)) {
-            container.append(createBadge('en', 'EN'));
-        }
-
-        // Resolution render
-        if (data.res !== 'SD') {
-            if (data.res === '4K' && getSetting('marks_4k', true)) {
-                container.append(createBadge('4k', '4K'));
-            } else if (data.res === 'FHD' && getSetting('marks_fhd', true)) {
-                container.append(createBadge('fhd', '1080p'));
-            } else if (data.res === 'HD' && getSetting('marks_fhd', true)) {
-                container.append(createBadge('hd', '720p'));
+        if (data.resolution && data.resolution !== 'SD') {
+            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) {
+                container.append(createCardBadge('4k', '4K'));
+            } else if (data.resolution === 'FHD' && isSettingEnabled('marks_fhd', false)) {
+                container.append(createCardBadge('fhd', '1080p'));
+            } else if (data.resolution === 'HD' && isSettingEnabled('marks_fhd', false)) {
+                container.append(createCardBadge('hd', '720p'));
+            } else if (isSettingEnabled('marks_fhd', false)) {
+                container.append(createCardBadge('hd', data.resolution));
             }
         }
 
-        // HDR & DV & Atmos
-        if (getSetting('marks_hdr', true)) {
-            if (data.dv) {
-                container.append(createBadge('hdr', 'DV'));
-            } else if (data.hdr) {
-                container.append(createBadge('hdr', 'HDR'));
-            }
+        if (isSettingEnabled('marks_hdr', false)) {
+            if (data.hdr) container.append(createCardBadge('hdr', 'HDR'));
+            if (data.dolbyVision) container.append(createCardBadge('hdr', 'DV'));
+            if (data.atmos) container.append(createCardBadge('atmos', 'Atmos'));
+        }
 
-            if (data.atmos) {
-                container.append(createBadge('atmos', 'Atmos'));
+        var hasCustomRating = false;
+        if (isSettingEnabled('marks_rating', false)) {
+            var rating = extractRating(movie);
+            if (rating > 0 && String(rating) !== '0.0') {
+                var rBadge = document.createElement('div');
+                rBadge.classList.add('likhtar-marks-badge', 'likhtar-marks-badge--rating');
+                rBadge.innerHTML = '<span class="likhtar-marks-star">&#9733;</span>' + rating.toFixed(1);
+                container.append(rBadge);
+                hasCustomRating = true;
             }
         }
 
-        // Render Rating
-        if (getSetting('marks_rating', true)) {
-            var vote = movie.imdb_rating || movie.vote_average || 0;
-            if (vote > 0) {
-                var r_badge = createBadge('rating', '');
-                r_badge.innerHTML = '<span class="mark-star">★</span>' + parseFloat(vote).toFixed(1);
-                container.append(r_badge);
-            }
+        if (cardRoot && cardRoot.length) {
+            if (hasCustomRating) cardRoot.addClass('likhtar-marks-has-custom-rating');
+            else cardRoot.removeClass('likhtar-marks-has-custom-rating');
         }
     }
 
-    function processCard(card, movie) {
-        if (!movie || !movie.id) return;
+    function addMarksToCard(card, movie, viewSelector) {
+        if (!isSettingEnabled('marks_enabled', false)) return;
 
-        var view = card.find('.card__view');
-        if (!view.length) view = card;
+        var containerParent = viewSelector ? card.find(viewSelector).first() : card;
+        if (!containerParent.length) containerParent = card;
 
-        if (view.css('position') === 'static') view.css('position', 'relative');
+        if (containerParent.css('position') === 'static') containerParent.css('position', 'relative');
 
-        var container = view.find('.lampa-marks-wrap');
-        if (!container.length) {
-            container = $('<div class="lampa-marks-wrap"></div>');
-            view.append(container);
+        var marksContainer = containerParent.find('.likhtar-marks-container').first();
+        if (!marksContainer.length) {
+            marksContainer = $('<div class="likhtar-marks-container"></div>');
+            containerParent.append(marksContainer);
         }
 
-        getMovieData(movie, function (data) {
-            applyMarks(container, movie, data);
+        resolveMarks(movie, function (bestData) {
+            renderCardBadges(marksContainer, bestData, movie, card);
         });
     }
 
-    // Full card details view rendering
-    function injectFullCard(movie, render) {
-        if (!movie || !movie.id) return;
+    function processCards(scopeNodes) {
+        var cardsToProcess;
 
-        var target = render.find('.full-start-new__rate-line, .full-start__rate-line').first();
-        if (!target.length) return;
-
-        var full_wrap = $('<div class="lampa-marks-full-row"></div>');
-        target.after(full_wrap);
-
-        getMovieData(movie, function (data) {
-            if (!getSetting('marks_enabled', true)) return;
-
-            if (data.ua && getSetting('marks_ua', true)) {
-                full_wrap.append('<div class="lampa-full-mark lampa-full-mark--ua">Українська озвучка</div>');
+        if (scopeNodes && scopeNodes.length) {
+            var cardNodes = [];
+            for (var i = 0; i < scopeNodes.length; i++) {
+                var node = scopeNodes[i];
+                if (!node || node.nodeType !== 1) continue;
+                if (node.matches && node.matches('.card')) cardNodes.push(node);
+                var nested = node.querySelectorAll ? node.querySelectorAll('.card') : [];
+                for (var j = 0; j < nested.length; j++) cardNodes.push(nested[j]);
             }
+            cardsToProcess = $(cardNodes).not('.likhtar-marks-processed');
+        } else {
+            cardsToProcess = $('.card').not('.likhtar-marks-processed');
+        }
 
-            if (data.ru && getSetting('marks_ru', true)) {
-                full_wrap.append('<div class="lampa-full-mark lampa-full-mark--ru">Русская озвучка</div>');
-            }
-
-            if (data.en && getSetting('marks_en', false)) {
-                full_wrap.append('<div class="lampa-full-mark lampa-full-mark--en">Английская озвучка</div>');
-            }
-
-            if (data.res !== 'SD') {
-                var res_text = data.res === '4K' ? '4K Ultra HD' : (data.res === 'FHD' ? '1080p Full HD' : '720p HD');
-                full_wrap.append('<div class="lampa-full-mark lampa-full-mark--quality">' + res_text + '</div>');
-            }
-
-            if (data.dv || data.hdr) {
-                full_wrap.append('<div class="lampa-full-mark lampa-full-mark--hdr">' + (data.dv ? 'Dolby Vision' : 'HDR10') + '</div>');
-            }
-
-            if (data.atmos) {
-                full_wrap.append('<div class="lampa-full-mark lampa-full-mark--atmos">Dolby Atmos</div>');
-            }
-        });
-    }
-
-    // --- OBSERVER ---
-
-    function startObserver() {
-        var observer = new MutationObserver(function (mutations) {
-            mutations.forEach(function (mutation) {
-                if (mutation.addedNodes.length) {
-                    $(mutation.addedNodes).find('.card').addBack('.card').each(function () {
-                        var card = $(this);
-                        if (card.hasClass('lampa-marks-done')) return;
-                        card.addClass('lampa-marks-done');
-
-                        var data = card.data('item') || card[0].card_data;
-                        if (data) processCard(card, data);
-                    });
-                }
-            });
-        });
-
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        $('.card').each(function () {
+        cardsToProcess.each(function () {
             var card = $(this);
-            if (card.hasClass('lampa-marks-done')) return;
-            card.addClass('lampa-marks-done');
-            var data = card.data('item') || card[0].card_data;
-            if (data) processCard(card, data);
+            var movie = getMovieFromCard(this);
+            if (!(movie && movie.id && !movie.size)) return;
+
+            card.addClass('likhtar-marks-processed');
+            if (card.hasClass('hero-banner')) addMarksToCard(card, movie, null);
+            else addMarksToCard(card, movie, '.card__view');
         });
     }
 
-    // --- INJECT STYLES ---
+    function renderFullBadges(container, data, movie) {
+        container.empty();
+        if (!isSettingEnabled('marks_enabled', false)) {
+            container.remove();
+            return;
+        }
 
-    function injectStyles() {
-        if (document.getElementById('lampa-marks-style')) return;
+        if (data.ukr && isSettingEnabled('marks_ua', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ua">UA+</div>');
+        }
+        if (data.rus && isSettingEnabled('marks_rus', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--ru">RU+</div>');
+        }
+
+        if (data.resolution && data.resolution !== 'SD') {
+            var resText = data.resolution;
+            if (resText === 'FHD') resText = '1080p';
+            else if (resText === 'HD') resText = '720p';
+
+            var showQuality = false;
+            if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) showQuality = true;
+            else if ((data.resolution === 'FHD' || data.resolution === 'HD') && isSettingEnabled('marks_fhd', false)) showQuality = true;
+
+            if (showQuality) {
+                container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
+            }
+        }
+
+        if (isSettingEnabled('marks_hdr', false)) {
+            if (data.hdr) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">HDR</div>');
+            if (data.dolbyVision) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">DV</div>');
+            if (data.atmos) container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--hdr">Atmos</div>');
+        }
+
+        if (isSettingEnabled('marks_rating', false)) {
+            var rating = extractRating(movie);
+            if (rating > 0 && String(rating) !== '0.0') {
+                container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--rating">&#9733;' + rating.toFixed(1) + '</div>');
+            }
+        }
+    }
+
+    function injectFullCardMarks(movie, renderEl) {
+        if (!movie || !movie.id || !renderEl) return;
+
+        var $render = $(renderEl);
+        if ($render.is('.applecation') || $render.find('.applecation').length) return;
+
+        if ($('.quality-badges-container').length) return;
+
+        var poster = $render.find('.full-start__poster, .full-start-new__poster').first();
+        if (poster.length) {
+            if ($render.find('.likhtar-marks-full').length) return;
+            poster.css('position', 'relative');
+            var posterBadges = $('<div class="likhtar-marks-full"></div>');
+            poster.append(posterBadges);
+
+            resolveMarks(movie, function (bestData) {
+                renderFullBadges(posterBadges, bestData, movie);
+            });
+        } else {
+            var rateLine = $render.find('.full-start-new__rate-line, .full-start__rate-line').first();
+            if (!rateLine.length) return;
+            if ($render.find('.likhtar-marks-row').length) return;
+
+            var qualityRow = $('<div class="likhtar-marks-row"></div>');
+            rateLine.append(qualityRow);
+            resolveMarks(movie, function (bestData) {
+                renderFullBadges(qualityRow, bestData, movie);
+            });
+        }
+    }
+
+    function initCardObserver() {
+        var queued = false;
+        var pendingRoots = [];
+
+        function scheduleProcess(mutations) {
+            if (mutations && mutations.length) {
+                for (var i = 0; i < mutations.length; i++) {
+                    var added = mutations[i].addedNodes;
+                    for (var j = 0; j < added.length; j++) {
+                        if (added[j] && added[j].nodeType === 1) pendingRoots.push(added[j]);
+                    }
+                }
+            }
+
+            if (queued) return;
+            queued = true;
+
+            setTimeout(function () {
+                queued = false;
+                if (pendingRoots.length) {
+                    var batch = pendingRoots.slice(0);
+                    pendingRoots = [];
+                    processCards(batch);
+                } else {
+                    processCards();
+                }
+            }, 80);
+        }
+
+        var observer = new MutationObserver(scheduleProcess);
+        var target = document.getElementById('app') || document.body;
+        observer.observe(target, { childList: true, subtree: true });
+
+        processCards();
+        setTimeout(processCards, 400);
+        setTimeout(processCards, 1500);
+    }
+
+    function initFullCardObserver() {
+        if (!Lampa.Listener || !Lampa.Listener.follow) return;
+
+        Lampa.Listener.follow('full', function (e) {
+            if (e.type !== 'complite') return;
+            var movie = e.data && e.data.movie;
+            var renderEl = e.object && e.object.activity && e.object.activity.render && e.object.activity.render();
+            injectFullCardMarks(movie, renderEl);
+        });
+
+        setTimeout(function () {
+            try {
+                var act = Lampa.Activity && Lampa.Activity.active && Lampa.Activity.active();
+                if (!act || act.component !== 'full') return;
+                var movie = act.card || act.movie;
+                var renderEl = act.activity && act.activity.render && act.activity.render();
+                injectFullCardMarks(movie, renderEl);
+            } catch (err) { }
+        }, 300);
+    }
+
+    function refreshAllMarks() {
+        try {
+            $('.likhtar-marks-container').remove();
+            $('.card').removeClass('likhtar-marks-processed likhtar-marks-has-custom-rating');
+            $('.likhtar-marks-full, .likhtar-marks-row').remove();
+            processCards();
+        } catch (e) { }
+
+        try {
+            var act = Lampa.Activity && Lampa.Activity.active && Lampa.Activity.active();
+            if (act && act.component === 'full') {
+                var movie = act.card || act.movie;
+                var renderEl = act.activity && act.activity.render && act.activity.render();
+                injectFullCardMarks(movie, renderEl);
+            }
+        } catch (e2) { }
+    }
+
+    function setupSettings() {
+        if (!Lampa.SettingsApi || !Lampa.SettingsApi.addParam) return;
+        if (window.marks_settings_added) return;
+        window.marks_settings_added = true;
+        var targetComponent = 'interface';
+        var migrateKey = 'marks_defaults_migrated_v4'; // Увеличение версии миграции для добавления новых параметров
+
+        if (!Lampa.Storage.get(migrateKey, false)) {
+            if (Lampa.Storage.get('marks_enabled', null) === null) {
+                Lampa.Storage.set('marks_enabled', false);
+            }
+            Lampa.Storage.set('marks_ua', true);
+            Lampa.Storage.set('marks_en', true);
+            Lampa.Storage.set('marks_rus', true); // Добавлено по умолчанию
+            Lampa.Storage.set('marks_4k', true);
+            Lampa.Storage.set('marks_fhd', true);
+            Lampa.Storage.set('marks_hdr', true);
+            Lampa.Storage.set('marks_rating', true);
+            Lampa.Storage.set(migrateKey, true);
+        }
+
+        var refreshBadgesNow = function () {
+            if (window.MARKS_REFRESH) window.MARKS_REFRESH();
+        };
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { type: 'title' },
+            field: { name: '\u041c\u0456\u0442\u043a\u0438 (Marks)' }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_enabled', type: 'trigger', default: false },
+            field: { name: '\u0423\u0432\u0456\u043c\u043a\u043d\u0443\u0442\u0438 \u043c\u043e\u0434\u0443\u043b\u044c \u043c\u0456\u0442\u043e\u043a' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_ua', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 UA' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_rus', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 RU' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_en', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 EN' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_4k', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 4K' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_fhd', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0438 1080p / 720p' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_hdr', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision / Atmos' },
+            onChange: refreshBadgesNow
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: targetComponent,
+            param: { name: 'marks_rating', type: 'trigger', default: true },
+            field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 \u0440\u0435\u0439\u0442\u0438\u043d\u0433\u0443' },
+            onChange: refreshBadgesNow
+        });
+    }
+
+    function injectStyle() {
+        if (document.getElementById('likhtar-marks-style-v1')) return;
+
         var style = document.createElement('style');
-        style.id = 'lampa-marks-style';
+        style.id = 'likhtar-marks-style-v1';
         style.innerHTML = '\
-            .lampa-marks-wrap { position: absolute; top: 0.5em; left: 0.3em; display: flex; flex-direction: column; gap: 0.25em; z-index: 10; pointer-events: none; }\
-            .lampa-mark { padding: 0.2em 0.4em; font-size: 0.7em; font-weight: 800; border-radius: 0.3em; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 2px 4px rgba(0,0,0,0.4); text-transform: uppercase; line-height: 1; }\
-            .lampa-mark--ua { background: linear-gradient(135deg, #0057b7 50%, #ffd700 50%); color: #fff; border-color: rgba(255,255,255,0.4); }\
-            .lampa-mark--ru { background: linear-gradient(135deg, #d32f2f, #ef5350); }\
-            .lampa-mark--en { background: linear-gradient(135deg, #455a64, #90a4ae); }\
-            .lampa-mark--4k { background: #e65100; border-color: #ff9800; }\
-            .lampa-mark--fhd { background: #311b92; }\
-            .lampa-mark--hd { background: #1b5e20; }\
-            .lampa-mark--hdr { background: #fbc02d; color: #000; text-shadow: none; font-weight: 900; }\
-            .lampa-mark--atmos { background: #212121; color: #fff; }\
-            .lampa-mark--rating { background: rgba(0,0,0,0.8); color: #ffd700; border-color: #ffd700; }\
-            .mark-star { margin-right: 0.1em; font-size: 1.1em; }\
-            /* Стили для полной карточки */\
-            .lampa-marks-full-row { display: flex; flex-wrap: wrap; gap: 0.5em; margin-top: 1em; width: 100%; }\
-            .lampa-full-mark { padding: 0.4em 0.8em; border-radius: 0.4em; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); font-size: 0.9em; font-weight: bold; }\
-            .lampa-full-mark--ua { border-left: 5px solid #ffd700; }\
-            .lampa-full-mark--ru { border-left: 5px solid #d32f2f; }\
-            .lampa-full-mark--quality { color: #81c784; }\
-            .lampa-full-mark--hdr { color: #ffca28; }\
-            .lampa-full-mark--atmos { color: #90caf9; }\
-            /* Фикс для Hero баннеров */\
-            .hero-banner .lampa-marks-wrap { top: 3em; left: 2em; scale: 1.3; transform-origin: top left; }\
-            .card__vote { display: none !important; } /* Скрываем стандартный рейтинг, если мешает */\
+            .likhtar-marks-container {\
+                position: absolute;\
+                top: 2.8em;\
+                left: -0.2em;\
+                display: flex;\
+                flex-direction: column;\
+                gap: 0.2em;\
+                z-index: 20;\
+                pointer-events: none;\
+            }\
+            .hero-banner .likhtar-marks-container {\
+                top: 2.8em;\
+                left: 1.2em;\
+                gap: 0.3em;\
+            }\
+            .likhtar-marks-badge {\
+                padding: 0.32em 0.48em;\
+                font-size: 0.78em;\
+                font-weight: 800;\
+                line-height: 1;\
+                letter-spacing: 0.03em;\
+                border-radius: 0.32em;\
+                display: inline-flex;\
+                align-items: center;\
+                justify-content: center;\
+                align-self: flex-start;\
+                border: 1px solid rgba(255,255,255,0.16);\
+                box-shadow: 0 1px 5px rgba(0,0,0,0.35);\
+                color: #fff;\
+                white-space: nowrap;\
+            }\
+            .likhtar-marks-badge--ua  { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
+            .likhtar-marks-badge--en  { background: linear-gradient(135deg, #37474f, #78909c); border-color: rgba(120,144,156,0.4); }\
+            .likhtar-marks-badge--rus { background: linear-gradient(135deg, #b71c1c, #e53935); border-color: rgba(229,57,53,0.4); }\
+            .likhtar-marks-badge--4k  { background: linear-gradient(135deg, #e65100, #ff9800); border-color: rgba(255,152,0,0.4); }\
+            .likhtar-marks-badge--fhd { background: linear-gradient(135deg, #4a148c, #ab47bc); border-color: rgba(171,71,188,0.4); }\
+            .likhtar-marks-badge--hd  { background: linear-gradient(135deg, #1b5e20, #66bb6a); border-color: rgba(102,187,106,0.4); }\
+            .likhtar-marks-badge--hdr { background: linear-gradient(135deg, #f57f17, #ffeb3b); color: #000; border-color: rgba(255,235,59,0.4); }\
+            .likhtar-marks-badge--atmos { background: linear-gradient(135deg, #424242, #757575); color: #fff; border-color: rgba(255,255,255,0.4); }\
+            .likhtar-marks-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
+            .likhtar-marks-star { margin-right: 0.16em; font-size: 0.92em; }\
+            .card.likhtar-marks-has-custom-rating .card__vote { display: none !important; }\
+            .likhtar-marks-full {\
+                position: absolute;\
+                top: 0.8em;\
+                right: 0.2em;\
+                display: flex;\
+                flex-direction: column;\
+                gap: 0.3em;\
+                z-index: 20;\
+                pointer-events: none;\
+            }\
+            .likhtar-marks-row {\
+                display: inline-flex;\
+                align-items: center;\
+                gap: 0.4em;\
+                flex-wrap: wrap;\
+            }\
+            .likhtar-marks-full-badge {\
+                display: inline-flex;\
+                align-items: center;\
+                justify-content: center;\
+                padding: 0.25em 0.5em;\
+                border-radius: 0.3em;\
+                border: 1px solid rgba(255,255,255,0.2);\
+                font-size: 0.75em;\
+                font-weight: 800;\
+                line-height: 1;\
+                letter-spacing: 0.04em;\
+                color: #fff;\
+                box-shadow: 0 2px 6px rgba(0,0,0,0.4);\
+            }\
+            .likhtar-marks-full-badge--ua { background: linear-gradient(135deg, #1565c0, #42a5f5); border-color: rgba(66,165,245,0.4); }\
+            .likhtar-marks-full-badge--ru { background: linear-gradient(135deg, #b71c1c, #e53935); border-color: rgba(229,57,53,0.4); }\
+            .likhtar-marks-full-badge--quality { background: linear-gradient(135deg, #2e7d32, #66bb6a); border-color: rgba(102,187,106,0.4); }\
+            .likhtar-marks-full-badge--hdr { background: linear-gradient(135deg, #512da8, #ab47bc); border-color: rgba(171,71,188,0.4); }\
+            .likhtar-marks-full-badge--rating { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #ffd700; border-color: rgba(255,215,0,0.35); }\
         ';
+
         document.head.appendChild(style);
     }
 
-    // --- SETTINGS INTERACTION ---
-
-    function setupSettings() {
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { type: 'title' },
-            field: { name: 'Метки контента (Full Mod)' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_enabled', type: 'trigger', default: true },
-            field: { name: 'Включить модуль меток' },
-            onChange: function () {
-                location.reload();
-            }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_ua', type: 'trigger', default: true },
-            field: { name: 'Показывать метку UA' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_ru', type: 'trigger', default: true },
-            field: { name: 'Показывать метку RU' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_en', type: 'trigger', default: false },
-            field: { name: 'Показывать метку EN' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_4k', type: 'trigger', default: true },
-            field: { name: 'Показывать метку 4K' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_fhd', type: 'trigger', default: true },
-            field: { name: 'Показывать метку 1080p/720p' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_hdr', type: 'trigger', default: true },
-            field: { name: 'Показывать HDR/DV' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: { name: 'marks_rating', type: 'trigger', default: true },
-            field: { name: 'Показывать рейтинг на карточке' }
-        });
-    }
-
-    function initialize() {
-        injectStyles();
+    function runInit() {
         setupSettings();
-        startObserver();
-
-        Lampa.Listener.follow('full', function (e) {
-            if (e.type === 'complite') {
-                injectFullCard(e.data.movie, e.object.activity.render());
-            }
-        });
-
-        console.log('Lampa Marks Full Plugin: Initialized successfully');
+        injectStyle();
+        window.MARKS_REFRESH = refreshAllMarks;
+        initCardObserver();
+        initFullCardObserver();
+        setTimeout(refreshAllMarks, 50);
     }
 
-    // Ждем готовности приложения
     if (window.appready) {
-        initialize();
-    } else {
+        runInit();
+    } else if (Lampa.Listener && Lampa.Listener.follow) {
         Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') initialize();
+            if (e.type === 'ready') runInit();
         });
+    } else {
+        setTimeout(runInit, 1200);
     }
-
 })();

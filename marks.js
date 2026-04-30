@@ -233,9 +233,6 @@
                     if (hasUafix) {
                         bestData.empty = false;
                         bestData.ukr = true;
-                        if (!bestData.resolution || bestData.resolution === 'SD' || bestData.resolution === 'HD') {
-                            bestData.resolution = 'FHD';
-                        }
                     }
                     callback(bestData);
                 });
@@ -265,7 +262,7 @@
         if (data.resolution) {
             if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) {
                 container.append(createCardBadge('4k', '4K'));
-            } else if (isSettingEnabled('marks_fhd', false)) {
+            } else if (isSettingEnabled('marks_fhd', false) && (data.resolution === 'FHD' || data.resolution === 'HD')) {
                 var resText = (data.resolution === 'FHD') ? '1080p' : (data.resolution === 'HD' ? '720p' : data.resolution);
                 container.append(createCardBadge('fhd', resText));
             }
@@ -357,15 +354,14 @@
         }
 
         if (data.resolution) {
-            var resText = data.resolution;
-            if (resText === 'FHD') resText = '1080p';
-            else if (resText === 'HD') resText = '720p';
-
             var showQuality = false;
             if (data.resolution === '4K' && isSettingEnabled('marks_4k', false)) showQuality = true;
-            else if (isSettingEnabled('marks_fhd', false)) showQuality = true;
+            else if (isSettingEnabled('marks_fhd', false) && (data.resolution === 'FHD' || data.resolution === 'HD')) showQuality = true;
 
             if (showQuality) {
+                var resText = data.resolution;
+                if (resText === 'FHD') resText = '1080p';
+                else if (resText === 'HD') resText = '720p';
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
             }
         }
@@ -497,7 +493,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v5';
+        var migrateKey = 'marks_defaults_migrated_v6';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {

@@ -26,8 +26,8 @@
     'RU': pluginPath + 'RU.png' // Індикатор російської озвучки
   };
 
-  var SETTINGS_KEY = 'svgq_user_settings_v12';
-  var CACHE_KEY = 'svgq_parser_cache_v7';
+  var SETTINGS_KEY = 'svgq_user_settings_v13';
+  var CACHE_KEY = 'svgq_parser_cache_v8';
   var CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   var st = {
@@ -139,25 +139,6 @@
   // PARSING LOGIC
   // =====================================================================
 
-  function countSupportedTracks(title) {
-    if (!title) return 0;
-    var cleanTitle = String(title).toLowerCase();
-    var subsIndex = cleanTitle.indexOf('sub');
-    if (subsIndex !== -1) cleanTitle = cleanTitle.substring(0, subsIndex);
-
-    var multiUkr = cleanTitle.match(/(\d+)x\s*(ukr)/);
-    var multiRus = cleanTitle.match(/(\d+)x\s*(rus|рус)/);
-    if (multiUkr && multiUkr[1]) return parseInt(multiUkr[1], 10) || 0;
-    if (multiRus && multiRus[1]) return parseInt(multiRus[1], 10) || 0;
-
-    var singlesUkr = cleanTitle.match(/\bukr\b/g);
-    var singlesRus = cleanTitle.match(/\b(rus|рус)\b/g);
-    if (singlesUkr) return singlesUkr.length;
-    if (singlesRus) return singlesRus.length;
-
-    return 0;
-  }
-
   function getCardType(cardData) {
     var type = cardData && (cardData.media_type || cardData.type);
     if (type === 'movie' || type === 'tv') return type;
@@ -206,9 +187,7 @@
       resolution: null, 
       hdr: false, 
       dolbyVision: false, 
-      audio: null, 
-      hasTrack: false, 
-      trackTracks: 0,
+      audio: null,
       hasUkr: false,
       hasRus: false
     };
@@ -230,12 +209,6 @@
         var y = extractYearFromTitle(title) || parseInt(item.relased || item.released || 0, 10) || 0;
         if (y > 1900 && y !== cardYear) continue;
       }
-
-      var trackCount = countSupportedTracks(title);
-      if (!trackCount || trackCount <= 0) continue;
-
-      best.hasTrack = true;
-      if (trackCount > best.trackTracks) best.trackTracks = trackCount;
 
       var foundRes = null;
       if (tl.indexOf('4k') >= 0 || tl.indexOf('2160') >= 0 || tl.indexOf('uhd') >= 0) foundRes = '4K';
@@ -294,7 +267,8 @@
       }
     }
     if (best.dolbyVision) best.hdr = true;
-    return best.hasTrack ? best : null;
+
+    return (best.resolution || best.hdr || best.audio || best.hasUkr || best.hasRus) ? best : null;
   }
 
   // =====================================================================
@@ -313,7 +287,7 @@
   }
 
   function buildBadgesHtml(best) {
-    if (!best || !best.hasTrack) return '';
+    if (!best) return '';
     var badges = [];
 
     // Відображаємо всі знайдені характеристики
@@ -322,7 +296,7 @@
     if (best.dolbyVision) badges.push(createBadgeImg('Dolby Vision', badges.length));
     if (best.audio) badges.push(createBadgeImg(best.audio, badges.length));
 
-    // Відображаємо обидва прапорці (і RU, і UKR, якщо вони знайдені)
+    // Відображення прапорців (і RU, і UKR, якщо вони знайдені)
     if (best.hasRus) badges.push(createBadgeImg('RU', badges.length));
     if (best.hasUkr) badges.push(createBadgeImg('UKR', badges.length));
 
@@ -356,7 +330,9 @@
       if (cached !== 'EMPTY') {
         task.elements.forEach(function(el) {
           $(el).find('.quality-badges-card').remove();
-          $(el).append('<div class="quality-badges-card">' + cached + '</div>');
+          var target = $(el).find('.card__view');
+          if (!target.length) target = $(el);
+          target.append('<div class="quality-badges-card">' + cached + '</div>');
         });
       }
       processQueue();
@@ -380,7 +356,9 @@
       if (html !== 'EMPTY') {
         task.elements.forEach(function(el) {
           $(el).find('.quality-badges-card').remove();
-          $(el).append('<div class="quality-badges-card">' + html + '</div>');
+          var target = $(el).find('.card__view');
+          if (!target.length) target = $(el);
+          target.append('<div class="quality-badges-card">' + html + '</div>');
         });
       }
       setTimeout(processQueue, 400); 
@@ -396,7 +374,9 @@
     if (cached) {
       if (cached !== 'EMPTY') {
         $(renderRoot).find('.quality-badges-card').remove();
-        $(renderRoot).append('<div class="quality-badges-card">' + cached + '</div>');
+        var target = $(renderRoot).find('.card__view');
+        if (!target.length) target = $(renderRoot);
+        target.append('<div class="quality-badges-card">' + cached + '</div>');
       }
       return;
     }
@@ -489,8 +469,8 @@
     .full-start__status.lqe-quality{ display:none !important; }\
     :root{ --svgq-badge-size: 2.0em; }\
     \
-    .card, .full-start-new, .full-start {\
-      position: relative;\
+    .card, .full-start-new, .full-start, .card__view {\
+      position: relative !important;\
     }\
     \
     /* Containers */\
@@ -526,7 +506,7 @@
     /* Оновлений яскравий дизайн */\
     .quality-badges-card {\
       position: absolute;\
-      top: 32px; left: 6px;\
+      top: 12px; left: 6px;\
       display: flex; flex-direction: row; flex-wrap: wrap;\
       justify-content: flex-start; gap: 5px;\
       z-index: 100;\

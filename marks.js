@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.marks_module_v3) return;
-    window.marks_module_v3 = true;
+    if (window.marks_module_v4) return;
+    window.marks_module_v4 = true;
 
     if (typeof Lampa === 'undefined') {
         console.warn('Marks: Lampa not found');
@@ -47,7 +47,7 @@
                 else onFail();
             };
             xhr.onerror = onFail;
-            xhr.timeout = 8000; // Снизил таймаут, чтобы карточки грузились быстрее
+            xhr.timeout = 7000;
             xhr.ontimeout = onFail;
             xhr.send();
         }
@@ -100,7 +100,7 @@
     }
 
     function searchMovieQualities(movie, callback) {
-        var cacheKey = 'marks_qualities_v3_' + movie.id;
+        var cacheKey = 'marks_qualities_v4_' + movie.id;
         if (qualitiesCache[cacheKey]) return callback(qualitiesCache[cacheKey]);
 
         try {
@@ -120,7 +120,6 @@
         var releaseDate = new Date(dateRaw);
         if (!isNaN(releaseDate.getTime()) && releaseDate.getTime() > Date.now()) return callback(emptyMarksData());
 
-        // Расширенный список API (добавлен maxvol)
         var apisToTry = [
             { url: 'https://jac.red/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year, type: 'jacred' },
             { url: 'https://maxvol.pro/api/v1/search?query=' + encodeURIComponent(title) + '&year=' + year, type: 'maxvol' },
@@ -145,7 +144,6 @@
         }
 
         function checkNextAPI() {
-            // Если нашли полный "джекпот", прекращаем спамить запросами
             if (best.resolution === '4K' && best.ru && best.ukr && best.eng) {
                 return finish();
             }
@@ -176,7 +174,6 @@
         checkNextAPI();
     }
 
-    // 1-й слой Укр. парсеров: Bandera/UaFix
     function checkUafixBandera(movie, callback) {
         var title = movie.title || movie.name || '';
         var origTitle = movie.original_title || movie.original_name || '';
@@ -198,7 +195,6 @@
         });
     }
 
-    // 2-й слой Укр. парсеров: Прямой поиск UaFix
     function checkUafixDirect(movie, callback) {
         var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
         if (!query) return callback(false);
@@ -211,7 +207,6 @@
         });
     }
 
-    // 3-й слой Укр. парсеров: Прямой поиск UaKino
     function checkUaKino(movie, callback) {
         var query = movie.original_title || movie.original_name || movie.title || movie.name || '';
         if (!query) return callback(false);
@@ -227,10 +222,9 @@
     function checkUafix(movie, callback) {
         if (!movie || !movie.id) return callback(false);
 
-        var key = 'marks_uafix_v3_' + movie.id;
+        var key = 'marks_uafix_v4_' + movie.id;
         if (uafixCache[key] !== undefined) return callback(uafixCache[key]);
 
-        // Каскадный поиск по украинским базам
         checkUafixBandera(movie, function (result) {
             if (result === true) {
                 uafixCache[key] = true;
@@ -319,6 +313,9 @@
             } else if (isSettingEnabled('marks_fhd', false)) {
                 container.append(createCardBadge('hd', data.resolution));
             }
+        } else if (data.empty === false && isSettingEnabled('marks_fhd', false)) {
+            // Если фильм есть на трекере, но разрешение не указано в названии, ставим метку HD по умолчанию
+            container.append(createCardBadge('hd', 'HD'));
         }
 
         if (isSettingEnabled('marks_hdr', false)) {
@@ -418,6 +415,8 @@
             if (showQuality) {
                 container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">' + resText + '</div>');
             }
+        } else if (data.empty === false && isSettingEnabled('marks_fhd', false)) {
+            container.append('<div class="likhtar-marks-full-badge likhtar-marks-full-badge--quality">HD</div>');
         }
 
         if (isSettingEnabled('marks_hdr', false)) {
@@ -547,7 +546,7 @@
         if (window.marks_settings_added) return;
         window.marks_settings_added = true;
         var targetComponent = 'interface';
-        var migrateKey = 'marks_defaults_migrated_v4';
+        var migrateKey = 'marks_defaults_migrated_v5';
 
         if (!Lampa.Storage.get(migrateKey, false)) {
             if (Lampa.Storage.get('marks_enabled', null) === null) {
@@ -616,7 +615,7 @@
         });
 
         Lampa.SettingsApi.addParam({
-            component: targetComponent,
+            component: targetPlacement,
             param: { name: 'marks_hdr', type: 'trigger', default: true },
             field: { name: '\u041f\u043e\u043a\u0430\u0437\u0443\u0432\u0430\u0442\u0438 \u043c\u0456\u0442\u043a\u0443 HDR / Dolby Vision / Atmos' },
             onChange: refreshBadgesNow

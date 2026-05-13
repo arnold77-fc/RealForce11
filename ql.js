@@ -1,7 +1,7 @@
 "use strict";
 (function() {
     var plugin = function() {
-        // Оставляем стили только для плашки с качеством
+        // Стили только для плашки с качеством
         var styles = `
             <style>
                 .card__info-overlay {
@@ -47,57 +47,114 @@
         
         $('head').append(styles);
         
-        // Функция для извлечения реального качества из данных Lampa
-        function getQuality(movie) {
-            var q = movie.quality || movie.rip || movie.source_quality;
+        // Кэш для сохранения результатов TMDB, чтобы не спамить API при скролле
+        var tmdbCache = {};
+        
+        // Функция определения качества из данных трейлеров TMDB
+        function getQualityFromTmdbVideos(videosData) {
+            if (!videosData || !videosData.results) return null;
             
-            // Если в корне нет, проверяем внутри потоков (если они уже спарсены)
-            if (!q && movie.streams && movie.streams.length > 0) {
-                var qualities = movie.streams.map(function(s) { 
-                    return (s.quality || '').toString().toUpperCase(); 
-                });
+            var qualities = [];
+            videosData.results.forEach(function(video) {
+                // Игнорируем всё, кроме официальных видео
+                if (video.name) {
+                    var name = video.name.toLowerCase();
+                    if (name.includes('4k') || name.includes('2160')) {
+                        qualities.push('4K');
+                    } else if (name.includes('1080') || name.includes('fhd')) {
+                        qualities.push('1080p');
+                    } else if (name.includes('720')) {
+                        qualities.push('720p');
+                    }
+                }
+            });
+            
+            if (qualities.includes('4K')) return '4K';
+            if (qualities.includes('1080p')) return '1080p';
+            if (qualities.includes('720p')) return '720p';
+            
+            return null;
+        }
+
+        // Функция получения качества из TMDB API
+        function getTmdbData(movie) {
+            return new Promise(function(resolve) {
+                var apiKey = '4ef0d7355d9ffb5151e987764708ce96';
+                var title = movie.title || movie.name || '';
+                var year = movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : '');
+                var mediaType = movie.first_air_date ? 'tv' : 'movie';
                 
-                if (qualities.some(function(x) { return x.includes('4K') || x.includes('UHD') || x.includes('2160'); })) q = '4K';
-                else if (qualities.some(function(x) { return x.includes('1080') || x.includes('FHD') || x.includes('FULLHD'); })) q = '1080p';
-                else if (qualities.some(function(x) { return x.includes('720') || x.includes('HD'); })) q = '720p';
-                else if (qualities.some(function(x) { return x.includes('TS') || x.includes('CAM'); })) q = 'TS';
-            }
-            
-            // Форматируем вывод
-            if (q) {
-                var qualityStr = q.toString().toUpperCase();
-                if (qualityStr.includes('4K') || qualityStr.includes('UHD') || qualityStr.includes('2160')) return '4K';
-                if (qualityStr.includes('1080') || qualityStr.includes('FULLHD') || qualityStr.includes('FHD')) return '1080p';
-                if (qualityStr.includes('720') || qualityStr.includes('HD')) return '720p';
-                if (qualityStr.includes('TS') || qualityStr.includes('CAM')) return 'TS';
-                return qualityStr; // Возвращаем как есть (например, WEB-DL), если не подошло под стандарты
-            }
-            
-            return null; // Если качество неизвестно, возвращаем null
+                if (!title) {
+                    resolve(null);
+                    return;
+                }
+
+                // Проверяем кэш
+                var cacheKey = mediaType + '_' + title + '_' + year;
+                if (tmdbCache[cacheKey]) {
+                    resolve(tmdbCache[cacheKey]);
+                    return;
+                }
+                
+                // Шаг 1: Ищем фильм/сериал, чтобы получить его ID
+                var searchUrl = 'https://api.themoviedb.org/3/search/' + mediaType + '?api_key=' + apiKey + '&language=ru&query=' + encodeURIComponent(title) + (year ? '&year=' + year : '');
+                
+                fetch(searchUrl)
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        if (data.results && data.results.length > 0) {
+                            var bestMatch = data.results[0];
+                            var id = bestMatch.id;
+                            
+                            // Шаг 2: Запрашиваем детали с прикрепленными видео (трейлерами)
+                            var detailsUrl = 'https://api.themoviedb.org/3/' + mediaType + '/' + id + '?api_key=' + apiKey + '&append_to_response=videos';
+                            
+                            return fetch(detailsUrl);
+                        } else {
+                            throw new Error('Not found');
+                        }
+                    })
+                    .then(function(response) {
+                        return response.json();
+                    })
+                    .then(function(detailsData) {
+                        var quality = getQualityFromTmdbVideos(detailsData.videos) || 'HD'; // Если видео нет, ставим HD
+                        tmdbCache[cacheKey] = quality; // Сохраняем в кэш
+                        resolve(quality);
+                    })
+                    .catch(function() {
+                        tmdbCache[cacheKey] = 'HD';
+                        resolve('HD');
+                    });
+            });
         }
         
-        // Функция добавления плашки
+        // Функция добавления элементов на карточку
         function addQualityInfo(card, movie) {
-            // Если плашка уже есть - пропускаем
             if (card.find('.card__info-overlay').length > 0) return;
             
-            var quality = getQuality(movie);
-            
-            // Если реальное качество неизвестно, НЕ выводим плашку вообще
-            if (!quality) return;
-            
-            // Создаем контейнер ТОЛЬКО с качеством
-            var infoContainer = $('<div class="card__info-overlay"></div>');
-            infoContainer.text(quality);
+            // Создаем загрузочный контейнер
+            var infoContainer = $('<div class="card__info-overlay">...</div>');
             
             if (card.css('position') === 'static') {
                 card.css('position', 'relative');
             }
             
             card.append(infoContainer);
+            
+            // Запрашиваем качество из TMDB
+            getTmdbData(movie).then(function(quality) {
+                if (quality) {
+                    infoContainer.text(quality);
+                } else {
+                    infoContainer.remove(); // Удаляем плашку, если качество не найдено
+                }
+            });
         }
         
-        // Обработка карточек на странице
+        // Функция для обработки всех карточек на странице
         function processAllCards() {
             var cardSelectors = ['.card', '.card--movie', '.card--serial', '.card__item', '[data-card-id]'];
             
@@ -108,17 +165,17 @@
                     
                     var movieData = card.data('movie') || card.data('card') || card.data('item');
                     
+                    // Если данных в карточке нет, собираем базовые из DOM
                     if (!movieData) {
-                        var cardId = card.data('id') || card.attr('data-id');
-                        if (cardId && typeof Lampa !== 'undefined' && Lampa.Storage) {
-                            movieData = Lampa.Storage.get('movie_' + cardId);
-                        }
-                    }
-                    
-                    if (!movieData && typeof Lampa !== 'undefined' && Lampa.Activity && Lampa.Activity.active()) {
-                        var activity = Lampa.Activity.active();
-                        if (activity && (activity.movie || activity.data)) {
-                            movieData = activity.movie || activity.data;
+                        var title = card.find('.card__title, .full__title, .title').text().trim();
+                        var yearText = card.find('.card__year, .year').text().trim();
+                        var year = yearText ? parseInt(yearText) : '';
+                        
+                        if (title) {
+                            movieData = {
+                                title: title,
+                                year: year
+                            };
                         }
                     }
                     
@@ -129,7 +186,7 @@
             });
         }
         
-        // Наблюдатель за DOM (бесконечный скролл, новые страницы)
+        // Наблюдаем за изменениями в DOM (бесконечный скролл)
         var observer = new MutationObserver(function() {
             setTimeout(processAllCards, 100);
         });
@@ -139,14 +196,14 @@
             subtree: true
         });
         
-        // Первичные запуски
+        // Первоначальный запуск
         setTimeout(processAllCards, 500);
         
         $(document).ready(function() {
             setTimeout(processAllCards, 1000);
         });
         
-        if (typeof Lampa !== 'undefined' && Lampa.Listener) {
+        if (typeof Lampa !== 'undefined') {
             Lampa.Listener.follow('complete', function() {
                 setTimeout(processAllCards, 500);
             });
@@ -157,7 +214,7 @@
         }
     };
     
-    // Инициализация при старте Lampa
+    // Запускаем плагин когда приложение готово
     if (window.appready) {
         plugin();
     } else {

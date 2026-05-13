@@ -1,11 +1,11 @@
 (function () {
     'use strict';
 
-    function initQualityBadges() {
-        // Добавляем стили только для бейджа качества
-        if (!$('#lampa_quality_badges_css').length) {
+    function initRealQualityBadges() {
+        // Добавляем стили для бейджей
+        if (!$('#lampa_real_quality_badges_css').length) {
             $('body').append(`
-                <style id="lampa_quality_badges_css">
+                <style id="lampa_real_quality_badges_css">
                     .card__badge--custom {
                         position: absolute;
                         z-index: 15;
@@ -35,144 +35,175 @@
             `);
         }
 
-        // Вспомогательные функции из оригинального кода
-        function normalizeCardForQuality(data) {
-            let type = 'movie';
-            if (data && (data.name || data.first_air_date || data.media_type === 'tv' || data.type === 'tv')) {
-                type = 'tv';
-            }
-            let release_date = '';
-            if (data) {
-                if (typeof data.release_date === 'string' && data.release_date.length >= 4) {
-                    release_date = data.release_date;
-                } else if (typeof data.first_air_date === 'string' && data.first_air_date.length >= 4) {
-                    release_date = data.first_air_date;
-                } else if (data.year) {
-                    let yearMatch = String(data.year).match(/(19|20)\d{2}/);
-                    if (yearMatch) release_date = yearMatch[0] + '-01-01';
-                }
-            }
-            return {
-                title: data && (data.title || data.name || '') || '',
-                original_title: data && (data.original_title || data.original_name || '') || '',
-                type: type,
-                release_date: release_date
-            };
-        }
+        // Настройка прокси для обхода блокировок при поиске качества
+        var workingProxy = null;
+        var proxies = [
+            'https://myfinder.kozak-bohdan.workers.dev/?key=lmp_2026_JacRed_K9xP7aQ4mV2E&url=',
+            'https://api.allorigins.win/raw?url=',
+            'https://corsproxy.io/?url='
+        ];
 
-        function estimateFallbackQuality(normalized, originalData) {
-            let year = 0;
-            if (normalized && normalized.release_date && normalized.release_date.length >= 4) {
-                year = parseInt(normalized.release_date.substring(0, 4), 10);
-            }
-            if (!year || isNaN(year)) return null;
-            
-            if (year >= 2023) return '4K';
-            if (year >= 2020) return 'FHD';
-            if (year >= 2015) return 'HD';
-            return 'SD';
-        }
-
-        function resolveRealQuality(cardData, callback) {
+        function fetchWithProxy(url, callback) {
             try {
-                let parserEnabled = Lampa.Storage.get('parser_use', false);
-                if (!parserEnabled || !Lampa.Parser || typeof Lampa.Parser.get !== 'function') {
-                    let normalized = normalizeCardForQuality(cardData);
-                    callback(estimateFallbackQuality(normalized, cardData));
+                var network = new Lampa.Reguest();
+                network.timeout(5000);
+                network.silent(url, function (json) {
+                    var text = typeof json === 'string' ? json : JSON.stringify(json);
+                    workingProxy = 'direct';
+                    callback(null, text);
+                }, function () {
+                    tryProxies(url, callback);
+                });
+            } catch (e) {
+                tryProxies(url, callback);
+            }
+        }
+
+        function tryProxies(url, callback) {
+            var proxyList = (workingProxy && workingProxy !== 'direct') ? [workingProxy].concat(proxies) : proxies;
+            function tryProxy(index) {
+                if (index >= proxyList.length) {
+                    callback(new Error('No proxy worked'));
                     return;
                 }
+                var p = proxyList[index];
+                var target = p.indexOf('url=') > -1 ? p + encodeURIComponent(url) : p + url;
 
-                let title = cardData.title || cardData.name || '';
-                let year = ((cardData.first_air_date || cardData.release_date || '0000') + '').slice(0, 4);
-                let searchQuery = {
-                    df: cardData.original_title,
-                    df_year: cardData.original_title + ' ' + year,
-                    lg: title,
-                    lg_year: title + ' ' + year
-                }[Lampa.Storage.get('parse_lang', 'ru')] || title;
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', target, true);
+                xhr.onload = function () {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        workingProxy = p;
+                        callback(null, xhr.responseText);
+                    } else {
+                        tryProxy(index + 1);
+                    }
+                };
+                xhr.onerror = function () { tryProxy(index + 1); };
+                xhr.timeout = 5000;
+                xhr.ontimeout = function () { tryProxy(index + 1); };
+                xhr.send();
+            }
+            tryProxy(0);
+        }
 
-                Lampa.Parser.get({ search: searchQuery, movie: cardData, page: 1 }, function(data) {
-                    if (!data || !data.Results || data.Results.length === 0) {
-                        let normalized = normalizeCardForQuality(cardData);
-                        callback(estimateFallbackQuality(normalized, cardData));
-                        return;
+        var _qCache = {};
+
+        // Главная функция поиска РЕАЛЬНОГО качества в сети
+        function getRealQuality(card, callback) {
+            var cacheKey = 'real_q_v1_' + card.id;
+
+            // 1. Проверяем кэш в оперативной памяти
+            if (_qCache[cacheKey]) return callback(_qCache[cacheKey]);
+
+            // 2. Проверяем кэш в памяти устройства (храним 24 часа)
+            try {
+                var raw = Lampa.Storage.get(cacheKey, '');
+                if (raw && typeof raw === 'object' && raw._ts && (Date.now() - raw._ts < 24 * 60 * 60 * 1000)) {
+                    _qCache[cacheKey] = raw;
+                    return callback(raw);
+                }
+            } catch (e) { }
+
+            var title = (card.original_title || card.title || card.name || '').toLowerCase();
+            var year = (card.release_date || card.first_air_date || '').substr(0, 4);
+
+            if (!title || !year) {
+                return callback(null);
+            }
+
+            // Если дата релиза в будущем — не ищем (торрентов еще нет)
+            var releaseDate = new Date(card.release_date || card.first_air_date);
+            if (releaseDate && releaseDate.getTime() > Date.now()) {
+                return callback(null);
+            }
+
+            // Обращаемся к API-агрегатору торрентов
+            var apiUrl = 'https://jr.maxvol.pro/api/v1.0/torrents?search=' + encodeURIComponent(title) + '&year=' + year;
+
+            fetchWithProxy(apiUrl, function (err, data) {
+                if (err || !data) return callback(null);
+
+                try {
+                    var parsed = JSON.parse(data);
+                    if (parsed.contents) parsed = JSON.parse(parsed.contents); // парсинг для allorigins
+                    
+                    var results = Array.isArray(parsed) ? parsed : (parsed.Results || []);
+                    if (!results.length) {
+                        var emptyData = { empty: true, _ts: Date.now() };
+                        _qCache[cacheKey] = emptyData;
+                        Lampa.Storage.set(cacheKey, emptyData);
+                        return callback(null);
                     }
 
-                    let resolutions = new Set();
-                    data.Results.forEach(function(result) {
-                        if (result.ffprobe && Array.isArray(result.ffprobe)) {
-                            let videoTrack = result.ffprobe.find(t => t.codec_type === 'video');
-                            if (videoTrack && videoTrack.width && videoTrack.height) {
-                                if (videoTrack.height >= 2160 || videoTrack.width >= 3840) resolutions.add('4K');
-                                else if (videoTrack.height >= 1440 || videoTrack.width >= 2560) resolutions.add('2K');
-                                else if (videoTrack.height >= 1080 || videoTrack.width >= 1920) resolutions.add('FHD');
-                                else if (videoTrack.height >= 720 || videoTrack.width >= 1280) resolutions.add('HD');
-                            }
+                    var bestRes = 'SD';
+                    var resOrder = ['SD', 'HD', 'FHD', '2K', '4K'];
+
+                    // Перебираем найденные раздачи и ищем максимальное качество
+                    results.forEach(function (item) {
+                        var t = (item.title || '').toLowerCase();
+                        var currentRes = 'SD';
+                        var q = parseInt(item.quality || 0, 10);
+                        
+                        if (q >= 2160) currentRes = '4K';
+                        else if (q >= 1440) currentRes = '2K';
+                        else if (q >= 1080) currentRes = 'FHD';
+                        else if (q >= 720) currentRes = 'HD';
+
+                        // Если метаданных качества нет, ищем по названию раздачи
+                        if (currentRes === 'SD') {
+                            if (t.indexOf('4k') >= 0 || t.indexOf('2160') >= 0 || t.indexOf('uhd') >= 0) currentRes = '4K';
+                            else if (t.indexOf('2k') >= 0 || t.indexOf('1440') >= 0) currentRes = '2K';
+                            else if (t.indexOf('1080') >= 0 || t.indexOf('fhd') >= 0 || t.indexOf('full hd') >= 0) currentRes = 'FHD';
+                            else if (t.indexOf('720') >= 0 || t.indexOf('hd') >= 0) currentRes = 'HD';
+                        }
+
+                        if (resOrder.indexOf(currentRes) > resOrder.indexOf(bestRes)) {
+                            bestRes = currentRes;
                         }
                     });
 
-                    if (resolutions.size > 0) {
-                        let qualityPriority = ['4K', '2K', 'FHD', 'HD'];
-                        for (let i = 0; i < qualityPriority.length; i++) {
-                            if (resolutions.has(qualityPriority[i])) {
-                                callback(qualityPriority[i]);
-                                return;
-                            }
-                        }
-                    }
+                    var finalResult = { resolution: bestRes, _ts: Date.now() };
+                    _qCache[cacheKey] = finalResult;
+                    Lampa.Storage.set(cacheKey, finalResult);
+                    callback(finalResult);
 
-                    let normalized = normalizeCardForQuality(cardData);
-                    callback(estimateFallbackQuality(normalized, cardData));
-                });
-            } catch (e) {
-                let normalized = normalizeCardForQuality(cardData);
-                callback(estimateFallbackQuality(normalized, cardData));
-            }
+                } catch (e) {
+                    callback(null);
+                }
+            });
         }
 
-        function addBadges(cardEl, movie) {
+        function addBadge(cardEl, movie) {
             if (!movie || !movie.id) return;
             let view = $(cardEl).find('.card__view');
             if (!view.length) view = $(cardEl);
 
-            // 1. Ставим базовое качество по году мгновенно
-            let normalized = normalizeCardForQuality(movie);
-            let estimated = estimateFallbackQuality(normalized, movie);
-            
-            if (estimated) {
-                let qualityBadge = $('<div>', {
-                    class: 'card__badge card__badge--custom card__badge--quality',
-                    text: estimated
-                });
-                view.append(qualityBadge);
-            }
-
-            // 2. Асинхронно уточняем через парсер
-            resolveRealQuality(movie, function(realQuality) {
-                if (!realQuality || !view.isConnected) return;
+            getRealQuality(movie, function(result) {
+                if (!result || result.empty || !result.resolution) return;
+                if (!view.isConnected) return;
                 
                 let existingBadge = view.find('.card__badge--quality');
                 if (existingBadge.length > 0) {
-                    existingBadge.text(realQuality);
+                    existingBadge.text(result.resolution);
                 } else {
                     let qualityBadge = $('<div>', {
                         class: 'card__badge card__badge--custom card__badge--quality',
-                        text: realQuality
+                        text: result.resolution
                     });
                     view.append(qualityBadge);
                 }
             });
         }
 
-        // Наблюдатель за появлением новых карточек
         function processCards() {
-            $('.card:not(.quality-badge-processed)').each(function () {
+            $('.card:not(.real-quality-processed)').each(function () {
                 let card = $(this);
-                card.addClass('quality-badge-processed');
+                card.addClass('real-quality-processed');
 
                 let movie = card.data('item') || (card[0] && (card[0].card_data || card[0].item)) || null;
                 if (movie && movie.id && !movie.size) {
-                    addBadges(card[0], movie);
+                    addBadge(card[0], movie);
                 }
             });
         }
@@ -186,10 +217,10 @@
     }
 
     if (window.appready) {
-        initQualityBadges();
+        initRealQualityBadges();
     } else {
         Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') initQualityBadges();
+            if (e.type === 'ready') initRealQualityBadges();
         });
     }
 
